@@ -1,0 +1,8 @@
+name = "ToolipsUDP"
+uuid = "e64f9067-1d5d-4d33-993f-77eee89daba2"
+authors = ["emmac <emmettgb@gmail.com>"]
+version = "0.1.0"
+
+[deps]
+Sockets = "6462fe0b-24de-5631-8697-dd941f90decc"
+Toolips = "a47e2ad8-fcf7-417c-9746-32b9bdf220bd"
