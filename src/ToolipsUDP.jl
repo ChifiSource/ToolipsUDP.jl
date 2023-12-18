@@ -1,18 +1,21 @@
 module ToolipsUDP
-using Toolips
 using Toolips.Sockets
 import Toolips.Sockets: send
-using Toolips: ServerExtension, ToolipsServer, AbstractConnection
+import Toolips: ServerExtension, ToolipsServer, AbstractConnection, getip
 import Base: show, read
 
 mutable struct UDPConnection <: AbstractConnection
     data::String
+    client::Dict{Symbol, String}
     server::Sockets.UDPSocket
+    function UDPConnection(client::Dict{Symbol, Any}, server::Sockets.UDPSocket)
+        new(String(recv(server)), client, server)::UDPConnection
+    end
 end
 
 mutable struct UDPExtension{T <: Any} <: ServerExtension
     type::Symbol
-    UDPExtension(T::String) = new{Symbol(T)}(:connection)
+    UDPExtension(T::Symbol) = new{T}(:connection)
 end
 
 mutable struct UDPServer <: ToolipsServer
@@ -22,24 +25,26 @@ mutable struct UDPServer <: ToolipsServer
     start::Function
     function UDPServer(f::Function, host::String = "127.0.0.1", port::Integer = 2000)
         server = UDPSocket()
+        ms = methods(serve)
+        exlist = [m.sig.parameters[3] for m in ms]
+        data::Dict{Symbol, Any} = Dict{Symbol, Any}()
         start() = begin
             bind(server, parse(IPv4, host), port)
             @async while server.status == 3
-                data::String = String(recv(server))
-                con = UDPConnection(data, server)
-                if contains(con.data, "?CM:")
-
-                else
-                    f(con)
+                con::UDPConnection = UDPConnection(data, server)
+                for ext in exlist
+                    if ext != UDPExtension{<:Any}
+                        serve(con, UDPExtension(ext.parameters[1]))
+                    end
                 end
+                f(con)
             end
         end
         new(host, port, server, start)
     end
 end
 
-
-function route(c::UDPConnection, ext::UDPExtension{<:Any})
+function serve(c::UDPConnection, ext::UDPExtension{<:Any})
 
 end
 
@@ -73,5 +78,6 @@ function send(c::UDPServer, data::String, to::String = "127.0.0.1", port::Int64 
     send(sock, parse(IPv4, to), port, data)
 end
 
+export send, UDPServer, UDPConnection
 
 end # module ToolipsUDP
