@@ -7,6 +7,7 @@ import Base: show, read
 
 mutable struct UDPConnection <: AbstractConnection
     data::String
+    server::Sockets.UDPSocket
 end
 
 mutable struct UDPServer <: ToolipsServer
@@ -19,8 +20,13 @@ mutable struct UDPServer <: ToolipsServer
         start() = begin
             bind(server, parse(IPv4, host), port)
             @async while server.status == 3
-                con = UDPConnection(String(recv(server)))
-                f(con)
+                data::String = String(recv(server))
+                con = UDPConnection(data, server)
+                if contains("?CM:")
+
+                else
+                    f(con)
+                end
             end
         end
         new(host, port, server, start)
@@ -46,9 +52,8 @@ function send(to::String = "127.0.0.1", port::Int64 = 2000, data::String; from::
     sock
 end
 
-function send(c::UDPConnection, port::Int64 = 2000, data::String)
-    sock = UDPSocket()
-    bind(sock, ip"127.0.0.1", from)
+function send(c::UDPConnection, data::String, to::String = "127.0.0.1", port::Int64 = 2000)
+    sock = c.server
     send(sock, parse(IPv4, from), port, data)
 end
 
