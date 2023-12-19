@@ -13,7 +13,7 @@ import Toolips: ServerExtension, ToolipsServer, AbstractConnection, getip, write
 import Base: show, read
 
 """
-### UDPConnection <: AbstractConnection
+### UDPConnection <: Toolips.AbstractConnection
 - ip**::String**
 - port**::Int64**
 - packet**::String**
@@ -27,7 +27,7 @@ The `data` field holds indexable data, which may be indexed by indexing the `UDP
 ##### example
 ```
 ```
-------------------
+---
 ##### constructors
 - `UDPConnection(data::Dict{Symbol, Any}, server::Sockets.UDPSocket)`
 """
@@ -46,11 +46,54 @@ mutable struct UDPConnection <: AbstractConnection
     end
 end
 
+"""
+### UDPExtension{T <: Any} <: Toolips.ServerExtension
+- type::Symbol
+
+The `UDPExtension` is a parametric type used to add functionality to a `UDPServer` from 
+a given environment. Using the parameter of the `UDPExtension`, we are able to add 
+new functionality to our `UDPServer` by extending `ToolipsUDP.serve` 
+(runs an extension each time the server is called) or `ToolipsUDP.start` (runs an extension on server start)
+##### example
+```
+```
+---
+##### constructors
+- `UDPExtension(T::Symbol)`
+"""
 mutable struct UDPExtension{T <: Any} <: ServerExtension
     type::Symbol
     UDPExtension(T::Symbol) = new{T}(:connection)
 end
 
+"""
+### UDPServer <: ToolipsServer
+- host::String
+- port::Int64
+- server::Sockets.UDPSocket
+- start::Function
+
+The `UDPServer` creates a connection-less server ideal for parsing incoming 
+packets of data quickly. The constructor is provided with a constructor that will 
+retrieve and organize data from an incoming `Connection`.
+
+This server may be extended using the `UDPExtension` 
+type. (`?ToolipsUDP.UDPExtension`)
+##### example
+In most cases, (in cases where we are source, or need to respond to a sink), we will 
+provide a `Function` to the `UDPServer` constructor.
+```example
+```
+When working from a sink perspective, sending data to a server, it might make more sense to just 
+provide the `host`.
+
+The `Function` provided to `UDPServer` will take a `UDPServer.UDPConnection`. To be clear on terminology, 
+`UDPConnection` is not a `Connection` in the traditional sense, but in the `Toolips` sense. (`?UDPConnection`)
+---
+##### constructors
+- `UDPServer(f::Function, host::String = "127.0.0.1", port::Int64 = 2000)`
+- `UDPServer(host::String, port::Int64)`
+"""
 mutable struct UDPServer <: ToolipsServer
     host::String
     port::Int64
@@ -84,14 +127,19 @@ end
 
 """
 **ToolipsUDP**
-### new_app(name::String, T::Type{UDPServer}) -> ::Nothing
+```julia
+new_app(name::String, T::Type{UDPServer}) -> ::Nothing
+```
 ------------------
 Generates a new `Toolips` app and then converts the project to a `ToolipsUDP` `UDPServer` 
 project.
 #### example
-```
+```example
+using ToolipsUDP
 
+ToolipsUDP.new_app("Example", UDPServer)
 ```
+(**note** that not providing the type creates a regular `Toolips` app.)
 """
 function new_app(name::String, T::Type{UDPServer})
     Toolips.new_app(name)
@@ -122,12 +170,35 @@ function new_app(name::String, T::Type{UDPServer})
     end
 end
 
+"""
+**ToolipsUDP**
+```julia
+serve(c::UDPConnection, ext::UDPExtension{<:Any}) -> ::Nothing
+```
+------------------
+
+#### example
+```
+
+```
+"""
 function serve(c::UDPConnection, ext::UDPExtension{<:Any})
 
 end
 
-function start(c::UDPConnection, ext::UDPExtension{<:Any})
+"""
+**ToolipsUDP**
+```julia
+start(data::Dict{Symbol, Any}, ext::UDPExtension{<:Any}) -> ::Nothing
+```
+------------------
 
+#### example
+```
+
+```
+"""
+function start(data::Dict{Symbol, Any}, ext::UDPExtension{<:Any})
 
 end
 
@@ -143,6 +214,18 @@ function show(io::IO, ts::UDPServer)
         """)
 end
 
+"""
+**ToolipsUDP**
+```julia
+send(data::String, to::String = "127.0.0.1", port::Int64; from::Int64 = port - 5)
+```
+---
+Creates a `UDPServer` and then sends `data` to `to`:`port` from 127.0.0.1:`from`.
+#### example
+```
+
+```
+"""
 function send(data::String, to::String = "127.0.0.1", port::Int64 = 2000; from::Int64 = port - 5)
     sock = UDPSocket()
     bind(sock, ip"127.0.0.1", from)
@@ -151,11 +234,35 @@ function send(data::String, to::String = "127.0.0.1", port::Int64 = 2000; from::
     sock
 end
 
+"""
+**ToolipsUDP**
+```julia
+send(data::String, to::String = "127.0.0.1", port::Int64; from::Int64 = port - 5)
+```
+---
+Creates a `UDPServer` and then sends `data` to `to`:`port` from 127.0.0.1:`from`.
+#### example
+```
+
+```
+"""
 function send(c::UDPConnection, data::String, to::String = "127.0.0.1", port::Int64 = 2000)
     sock = c.server
     send(sock, parse(IPv4, to), port, data)
 end
 
+"""
+**ToolipsUDP**
+```julia
+send(data::String, to::String = "127.0.0.1", port::Int64; from::Int64 = port - 5)
+```
+---
+Creates a `UDPServer` and then sends `data` to `to`:`port` from 127.0.0.1:`from`.
+#### example
+```
+
+```
+"""
 function send(c::UDPServer, data::String, to::String = "127.0.0.1", port::Int64 = 2000)
     sock = c.server
     send(sock, parse(IPv4, to), port, data)
