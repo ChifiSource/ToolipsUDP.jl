@@ -6,10 +6,16 @@ import Base: show, read
 
 mutable struct UDPConnection <: AbstractConnection
     data::String
+    ip::String
     client::Dict{Symbol, String}
     server::Sockets.UDPSocket
     function UDPConnection(client::Dict{Symbol, Any}, server::Sockets.UDPSocket)
-        new(String(recv(server)), client, server)::UDPConnection
+     #   ip_data = recvfrom(server)
+     #   ip, data = String(ip_data[1]), String(ip_data[2])
+     ip, rawdata = recvfrom(server)
+     data = String(rawdata)
+     ip = string(ip)
+        new(data, ip, client, server)::UDPConnection
     end
 end
 
@@ -30,14 +36,18 @@ mutable struct UDPServer <: ToolipsServer
         data::Dict{Symbol, Any} = Dict{Symbol, Any}()
         start() = begin
             bind(server, parse(IPv4, host), port)
-            @async while server.status == 3
+            Threads.@spawn while server.status == 3
                 con::UDPConnection = UDPConnection(data, server)
                 for ext in exlist
                     if ext != UDPExtension{<:Any}
                         serve(con, UDPExtension(ext.parameters[1]))
                     end
                 end
-                f(con)
+                try
+                    f(con)
+                catch e
+                    throw(e)
+                end
             end
         end
         new(host, port, server, start)
