@@ -1,3 +1,10 @@
+"""
+Created in June, 2022 by
+[chifi - an open source software dynasty.](https://github.com/orgs/ChifiSource)
+by team
+### ToolipsUDP
+This module provides a high-level `Toolips` interface for UDP servers.
+"""
 module ToolipsUDP
 using Toolips.Sockets
 using Toolips.Pkg: activate, add
@@ -5,18 +12,37 @@ import Toolips.Sockets: send
 import Toolips: ServerExtension, ToolipsServer, AbstractConnection, getip, write!, new_app
 import Base: show, read
 
+"""
+### UDPConnection <: AbstractConnection
+- ip**::String**
+- port**::Int64**
+- packet**::String**
+- data**::Dict{Symbol, String}**
+- server**::Sockets.UDPSocket**
+---
+The `UDPConnection` is provided as an argument to the `Function` provided 
+to your `UDPServer` constructor. The `packet` field carries the data currently being transmitted. 
+The `data` field holds indexable data, which may be indexed by indexing the `UDPConnection` with a 
+`Symbol`. Finally, the `ip` and the `port` may be used to find more information on the server.
+##### example
+```
+```
+------------------
+##### constructors
+- `UDPConnection(data::Dict{Symbol, Any}, server::Sockets.UDPSocket)`
+"""
 mutable struct UDPConnection <: AbstractConnection
     ip::String
     port::Int64
-    data::String
-    client::Dict{Symbol, String}
+    packet::String
+    data::Dict{Symbol, String}
     server::Sockets.UDPSocket
-    function UDPConnection(client::Dict{Symbol, Any}, server::Sockets.UDPSocket)
+    function UDPConnection(data::Dict{Symbol, Any}, server::Sockets.UDPSocket)
         ip, rawdata = recvfrom(server)
-        data = String(rawdata)
+        packet = String(rawdata)
         port = Int64(ip.port)
         ip = string(ip.host)
-        new(ip, port, data, client, server)::UDPConnection
+        new(ip, port, packet, data, server)::UDPConnection
     end
 end
 
@@ -56,6 +82,17 @@ mutable struct UDPServer <: ToolipsServer
     UDPServer(host::String, port::Integer) = UDPServer(c::UDPConnection -> nothing, host, port)::UDPServer
 end
 
+"""
+**ToolipsUDP**
+### new_app(name::String, T::Type{UDPServer}) -> ::Nothing
+------------------
+Generates a new `Toolips` app and then converts the project to a `ToolipsUDP` `UDPServer` 
+project.
+#### example
+```
+
+```
+"""
 function new_app(name::String, T::Type{UDPServer})
     Toolips.new_app(name)
     activate(name)
@@ -67,7 +104,7 @@ function new_app(name::String, T::Type{UDPServer})
 
         function start(ip::String = "127.0.0.1", port::Int64 = 2000)
             myserver = UDPServer() do c::UDPConnection
-                println(c.data)
+                println(c.packet)
                 println(c.ip)
                 println(c.port)
             end
