@@ -10,7 +10,7 @@ using Toolips.Sockets
 using Toolips.Pkg: activate, add
 import Toolips.Sockets: send
 import Toolips: ServerExtension, ToolipsServer, AbstractConnection, getip, write!, new_app
-import Base: show, read
+import Base: show, read, getindex, setindex!, push!
 
 """
 ### UDPConnection <: Toolips.AbstractConnection
@@ -45,6 +45,10 @@ mutable struct UDPConnection <: AbstractConnection
         new(ip, port, packet, data, server)::UDPConnection
     end
 end
+
+getindex(c::UDPConnection, data::Symbol) = c.data[data]
+setindex!(c::UDPConnection, a::Any, data::Symbol) = c.data[data] = a
+push!(c::UDPConnection, dat::Any ...) = push!(c.data, dat...)
 
 """
 ### UDPExtension{T <: Any} <: Toolips.ServerExtension
