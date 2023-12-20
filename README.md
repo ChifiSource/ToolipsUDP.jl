@@ -1,6 +1,6 @@
 <div align="center"><img src="https://github.com/ChifiSource/image_dump/raw/main/toolips/toolipsudp.png"></img></div>
 
-`ToolipsUDP` provides high-level `Toolips`-style functionality to UDP networking projects. This functionality is facilitated via the `UDPServer` and `UDPConnection` types. 
+`ToolipsUDP` provides high-level [toolips](https://github.com/ChifiSource/Toolips.jl)-style functionality to UDP networking projects. This functionality is facilitated via the `UDPServer` and `UDPConnection` types. 
 
 ###### creating a UDP server
 Whereas a `Toolips` `WebServer` typically comes with a router, the `UDPServer` takes a `Function` directly and provides this function with a `UDPConnection`. To create a UDP server, we provide a connection handler function. Use the UDPServer constructor with a `do` block to specify the behavior when a connection is received. Here's an example:
@@ -45,6 +45,4 @@ import ToolipsUDP: serve, onstart
 onstart(data::Dict{Symbol, Any}, ue::UDPExtension{:loaddata}) = push!(data, :mydata => "hello world!")
 
 serve(c::UDPConnection, ue::UDPExtension{:printdata}) = println(c[:mydata])
-```
-```
 ```
