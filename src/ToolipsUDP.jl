@@ -113,7 +113,7 @@ mutable struct UDPServer <: ToolipsServer
             ms = methods(serve)
             exlist = filter!(sig -> sig != UDPExtension, [m.sig.parameters[3] for m in ms])
             bind(server, parse(IPv4, host), port)
-            Threads.@spawn while server.status == 3
+            @async while server.status > 2
                 con::UDPConnection = UDPConnection(data, server)
                 [serve(con, UDPExtension(ext.parameters[1])) for ext in exlist]
                 try
@@ -145,7 +145,7 @@ ToolipsUDP.new_app("Example", UDPServer)
 (**note** that not providing the type creates a regular `Toolips` app.)
 """
 function new_app(name::String, T::Type{UDPServer})
-    Toolips.new_app(name)
+    new_app(name)
     activate(name)
     add("ToolipsUDP")
     open("$name/src/$name.jl", "w") do o::IO
@@ -270,6 +270,20 @@ end
 """
 **ToolipsUDP**
 ```julia
+respond(c::UDPConnection, data::String)
+```
+---
+Sends a response to the client currently transmitting to the handler.
+#### example
+```
+
+```
+"""
+respond(c::UDPConnection, data::String) = send(c, data, c.ip, c.port)
+
+"""
+**ToolipsUDP**
+```julia
 send(c::UDPServer, data::String, to::String = "127.0.0.1", port::Int64; from::Int64 = port - 5) -> ::Nothing
 ```
 ---
@@ -294,6 +308,8 @@ function send(c::UDPServer, data::String, to::String = "127.0.0.1", port::Int64 
     nothing
 end
 
-export send, UDPServer, UDPConnection
+
+
+export send, UDPServer, UDPConnection, respond
 
 end # module ToolipsUDP
