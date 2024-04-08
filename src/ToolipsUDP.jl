@@ -7,9 +7,11 @@ This module provides a high-level `Toolips` interface for UDP servers.
 """
 module ToolipsUDP
 using Toolips.Sockets
+import Toolips: IP4, AbstractConnection, get_ip, write!, ip4_cli
+import Toolips: route!, on_start, AbstractExtension, AbstractRoute, respond!
+using Toolips.ParametricProcesses
 using Toolips.Pkg: activate, add
 import Toolips.Sockets: send
-import Toolips: ServerExtension, ToolipsServer, AbstractConnection, getip, write!, new_app
 import Base: show, read, getindex, setindex!, push!
 
 """
@@ -32,8 +34,7 @@ The `data` field holds indexable data, which may be indexed by indexing the `UDP
 - `UDPConnection(data::Dict{Symbol, Any}, server::Sockets.UDPSocket)`
 """
 mutable struct UDPConnection <: AbstractConnection
-    ip::String
-    port::Int64
+    ip::IP4
     packet::String
     data::Dict{Symbol, Any}
     server::Sockets.UDPSocket
@@ -42,7 +43,7 @@ mutable struct UDPConnection <: AbstractConnection
         packet = String(rawdata)
         port = Int64(ip.port)
         ip = string(ip.host)
-        new(ip, port, packet, data, server)::UDPConnection
+        new(ip:port, packet, data, server)::UDPConnection
     end
 end
 
@@ -50,105 +51,75 @@ getindex(c::UDPConnection, data::Symbol) = c.data[data]
 setindex!(c::UDPConnection, a::Any, data::Symbol) = c.data[data] = a
 push!(c::UDPConnection, dat::Any ...) = push!(c.data, dat...)
 
-"""
-### UDPExtension{T <: Any} <: Toolips.ServerExtension
-- type::Symbol
+abstract type AbstractUDPExtension <: AbstractExtension end
 
-The `UDPExtension` is a parametric type used to add functionality to a `UDPServer` from 
-a given environment. Using the parameter of the `UDPExtension`, we are able to add 
-new functionality to our `UDPServer` by extending `ToolipsUDP.serve` 
-(runs an extension each time the server is called) or `ToolipsUDP.onstart` (runs an extension on server start)
-##### example
-```
-```
----
-##### constructors
-- `UDPExtension(T::Symbol)`
-"""
-mutable struct UDPExtension{T <: Any} <: ServerExtension
-    type::Symbol
-    UDPExtension(T::Symbol) = new{T}(:connection)
+struct UDPExtension{T <: Any} <: AbstractUDPExtension
+
 end
 
-"""
-### UDPServer <: ToolipsServer
-- host::String
-- port::Int64
-- server::Sockets.UDPSocket
-- start::Function
+function route!(c::UDPConnection, ext::UDPExtension{<:Any})
 
-The `UDPServer` creates a connection-less server ideal for parsing incoming 
-packets of data quickly. The constructor is provided with a constructor that will 
-retrieve and organize data from an incoming `Connection`.
+end
 
-This server may be extended using the `UDPExtension` 
-type. (`?ToolipsUDP.UDPExtension`)
-##### example
-In most cases, (in cases where we are source, or need to respond to a sink), we will 
-provide a `Function` to the `UDPServer` constructor.
-```example
-```
-When working from a sink perspective, sending data to a server, it might make more sense to just 
-provide the `host`.
 
-The `Function` provided to `UDPServer` will take a `UDPServer.UDPConnection`. To be clear on terminology, 
-`UDPConnection` is not a `Connection` in the traditional sense, but in the `Toolips` sense. (`?UDPConnection`)
----
-##### constructors
-- `UDPServer(f::Function, host::String = "127.0.0.1", port::Int64 = 2000)`
-- `UDPServer(host::String, port::Int64)`
-"""
-mutable struct UDPServer <: ToolipsServer
-    host::String
-    port::Int64
-    server::Sockets.UDPSocket
-    start::Function
-    function UDPServer(f::Function, host::String = "127.0.0.1", port::Integer = 2000)
-        server = UDPSocket()
-        start() = begin
-            data::Dict{Symbol, Any} = Dict{Symbol, Any}()
-            ms::Base.MethodList = methods(onstart)
-            exlist = filter!(sig -> sig != UDPExtension, [m.sig.parameters[3] for m in ms])
-            [onstart(data, UDPExtension(ext.parameters[1])) for ext in exlist]
-            ms = methods(serve)
-            exlist = filter!(sig -> sig != UDPExtension, [m.sig.parameters[3] for m in ms])
-            bind(server, parse(IPv4, host), port)
-            while server.status > 2
-                con::UDPConnection = UDPConnection(data, server)
-                try
-                    [serve(con, UDPExtension(ext.parameters[1])) for ext in exlist]
-                catch e
-                    @info "test"
-                end
-                try
-                    f(con)
-                catch e
-                    @info "test"
-                end
-            end
+function on_start(data::Dict{Symbol, Any}, ext::UDPExtension{<:Any})
+
+end
+
+abstract type AbstractUDPHandler <: AbstractRoute end
+
+struct UDPHandler <: AbstractUDPHandler
+    f::Function
+end
+
+handler = UDPHandler
+
+default_handler = handler() do c::UDPConnection
+    write!(c, "hello world!")
+end
+
+function start!(mod::Module = server_cli(Main.ARGS), ip::IP4 = ip4_cli(Main.ARGS); threads::Int64 = 1)
+    data::Dict{Symbol, Any} = Dict{Symbol, Any}()
+    server_ns::Vector{Symbol} = names(mod)
+    loaded = []
+    handler = default_handler
+    for name in server_ns
+        f = getfield(mod, name)
+        T = typeof(f)
+        if T <: AbstractUDPExtension
+            push!(loaded, f)
+        elseif T <: AbstractUDPHandler
+            handler = f
         end
-        new(host, port, server, start)::UDPServer
+        T = nothing
     end
-    UDPServer(host::String, port::Integer) = UDPServer(c::UDPConnection -> nothing, host, port)::UDPServer
+    [on_start(data, ext) for ext in loaded]
+    allparams = (m.sig.parameters[3] for m in methods(route!, Any[AbstractConnection, AbstractExtension]))
+    filter!(ext -> typeof(ext) in allparams, loaded)
+    server = UDPSocket()
+    bind(server, parse(IPv4, ip.ip), ip.port)
+    mod.data = data
+    mod.server = server
+    t = @async while server.status > 2
+        con::UDPConnection = UDPConnection(data, server)
+        try
+            [route!(con, UDPExtension(ext.parameters[1])) for ext in loaded]
+        catch e
+            throw(e)
+        end
+        try
+            handler.f(con)
+        catch e
+            throw(e)
+        end
+    end
+    w::Worker{Async} = Worker{Async}("$mod router", rand(1000:3000))
+    w.active = true
+    w.task = t
+    ProcessManager(w)::ProcessManager
 end
 
-"""
-**ToolipsUDP**
-```julia
-new_app(name::String, T::Type{UDPServer}) -> ::Nothing
-```
-------------------
-Generates a new `Toolips` app and then converts the project to a `ToolipsUDP` `UDPServer` 
-project.
-#### example
-```example
-using ToolipsUDP
-
-ToolipsUDP.new_app("Example", UDPServer)
-```
-(**note** that not providing the type creates a regular `Toolips` app.)
-"""
-function new_app(name::String, T::Type{UDPServer})
+function new_app(name::String)
     new_app(name)
     activate(name)
     add("ToolipsUDP")
@@ -157,163 +128,41 @@ function new_app(name::String, T::Type{UDPServer})
         """module $name
         using ToolipsUDP
 
-        function start(ip::String = "127.0.0.1", port::Int64 = 2000)
-            myserver = UDPServer() do c::UDPConnection
-                println(c.packet)
-                println(c.ip)
-                println(c.port)
-            end
-            myserver.start()
-            myserver
+        handler = route() do c::UDPConnection
+            respond(c, "hello world!")
         end
 
-        function send_to_my_server(data::String)
-            server2 = UDPServer("127.0.0.1", 2005)
-            server2.start()
-            ToolipsUDP.send(server2, "test", myserver.host, myserver.port)
+        export handler
         end
-        ==#
         """)
     end
 end
 
-"""
-**ToolipsUDP**
-```julia
-serve(c::UDPConnection, ext::UDPExtension{<:Any}) -> ::Nothing
-```
-------------------
-This is an extensible `Function` which may be used to extend a `UDPServer`. 
-This is done by simply adding new methods to this type. Each `Method` is ran everytime 
-the server responds.
-#### example
-```example
-import ToolipsUDP: serve
-
-function serve(c::UDPConnection, ext::UDPExtension{:printstuff})
-    println(c.ip * ":" * c.port)
-    println(c.packet)
-end
-```
-"""
-function serve(c::UDPConnection, ext::UDPExtension{<:Any})
-
-end
-
-"""
-**ToolipsUDP**
-```julia
-onstart(data::Dict{Symbol, Any}, ext::UDPExtension{<:Any}) -> ::Nothing
-```
----
-This is an extensible `Function` which may be used to extend a `UDPServer`. 
-This is done by simply adding new methods to this type. Each `Method` is ran with the server's data when the server starts.
-#### example
-```example
-import ToolipsUDP: onstart
-
-function onstart(data::Dict{Symbol, Any}, ext::UDPExtension{:lognames})
-    push!(data, :people => Dict{String, Any}())
-end
-```
-"""
-function onstart(data::Dict{Symbol, Any}, ext::UDPExtension{<:Any})
-
-end
-
-function show(io::IO, ts::UDPServer)
-    st = ts.server.status
-    active::String = "inactive"
-    if st == 3 || st == 4
-        active = "active"
-    end
-    print("""$(typeof(ts))
-        UDP server: $(ts.host):$(ts.port)
-        status: $active ($(st))
-        """)
-end
-
-"""
-**ToolipsUDP**
-```julia
-send(data::String, to::String = "127.0.0.1", port::Int64; from::Int64 = port - 5) -> ::Nothings
-```
----
-Creates a `UDPServer` and then sends `data` to `to`:`port` from 127.0.0.1:`from`.
-#### example
-```
-
-```
-"""
-function send(data::String, to::String = "127.0.0.1", port::Int64 = 2000; from::Int64 = port - 5)
+function send(data::String, to::IP4 = "127.0.0.1":2000; from::Int64 = to.port - 5)
     sock = UDPSocket()
     bind(sock, ip"127.0.0.1", from)
-    send(sock, parse(IPv4, to), port, data)
+    send(sock, parse(IPv4, to.ip), to.port, data)
     close(sock)
     nothing
 end
 
-"""
-**ToolipsUDP**
-```julia
-send(c::UDPConnection, data::String, to::String = "127.0.0.1", port::Int64; from::Int64 = port - 5) -> ::Nothing
-```
----
-Sends `data`` from the `UDPServer` associated with `c`, the `UDPConnection`.
-#### example
-```
 
-```
-"""
-function send(c::UDPConnection, data::String, to::String = "127.0.0.1", port::Int64 = 2000)
+function send(c::UDPConnection, data::String, to::IP4 = "127.0.0.1":2000)
     sock = c.server
-    send(sock, parse(IPv4, to), port, data)
-    nothing
-end
-
-"""
-**ToolipsUDP**
-```julia
-respond(c::UDPConnection, data::String)
-```
----
-Sends a response to the client currently transmitting to the handler.
-#### example
-```
-
-```
-"""
-respond(c::UDPConnection, data::String) = send(c, data, c.ip, c.port)
-
-"""
-**ToolipsUDP**
-```julia
-send(c::UDPServer, data::String, to::String = "127.0.0.1", port::Int64; from::Int64 = port - 5) -> ::Nothing
-```
----
-Sends `data` to `to` from `c`.
-#### example
-```example
-myserver = UDPServer() do c::UDPConnection
-    println(c.ip)
-end
-
-myserver.start()
-
-server2 = UDPServer("127.0.0.1", 2005)
-server2.start()
-
-ToolipsUDP.send(server2, "test", myserver.host, myserver.port)
-```
-"""
-function send(c::UDPServer, data::String, to::String = "127.0.0.1", port::Int64 = 2000)
-    sock = c.server
-    send(sock, parse(IPv4, to), port, data)
+    send(sock, parse(IPv4, to.ip), to.port, data)
     nothing
 end
 
 
+respond!(c::UDPConnection, data::String) = send(c, data, c.ip)
 
-export send, UDPServer, UDPConnection, respond
+
+function send(c::Module, data::String, to::IP4 = "127.0.0.1":2000)
+    sock = c.server
+    send(sock, parse(IPv4, to.ip), to.port, data)
+    nothing
+end
+
+export send, UDPServer, UDPConnection, respond!, start!, IP4, write!, handler, UDPExtension
 
 end # module ToolipsUDP
