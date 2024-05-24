@@ -47,6 +47,8 @@ mutable struct UDPConnection <: AbstractConnection
     end
 end
 
+write!(c::UDPConnection, a::Any ...) = throw("write?")
+
 getindex(c::UDPConnection, data::Symbol) = c.data[data]
 setindex!(c::UDPConnection, a::Any, data::Symbol) = c.data[data] = a
 push!(c::UDPConnection, dat::Any ...) = push!(c.data, dat...)
@@ -57,12 +59,12 @@ struct UDPExtension{T <: Any} <: AbstractUDPExtension
 
 end
 
-function route!(c::UDPConnection, ext::UDPExtension{<:Any})
+function route!(c::UDPConnection, ext::AbstractUDPExtension)
 
 end
 
 
-function on_start(data::Dict{Symbol, Any}, ext::UDPExtension{<:Any})
+function on_start(data::Dict{Symbol, Any}, ext::AbstractUDPExtension)
 
 end
 
@@ -70,12 +72,14 @@ abstract type AbstractUDPHandler <: AbstractRoute end
 
 struct UDPHandler <: AbstractUDPHandler
     f::Function
+    name::String
 end
 
 handler = UDPHandler
 
-default_handler = handler() do c::UDPConnection
-    write!(c, "hello world!")
+default_handler = handler("default") do c::UDPConnection
+    respond!(c, "hello world :)")
+    @info "responded to a client"
 end
 
 function start!(mod::Module = server_cli(Main.ARGS), ip::IP4 = ip4_cli(Main.ARGS); threads::Int64 = 1)
@@ -100,7 +104,7 @@ function start!(mod::Module = server_cli(Main.ARGS), ip::IP4 = ip4_cli(Main.ARGS
     bind(server, parse(IPv4, ip.ip), ip.port)
     mod.data = data
     mod.server = server
-    t = @async while server.status > 2
+    t = while server.status > 2
         con::UDPConnection = UDPConnection(data, server)
         try
             [route!(con, UDPExtension(ext.parameters[1])) for ext in loaded]
@@ -143,14 +147,12 @@ function send(data::String, to::IP4 = "127.0.0.1":2000; from::Int64 = to.port - 
     bind(sock, ip"127.0.0.1", from)
     send(sock, parse(IPv4, to.ip), to.port, data)
     close(sock)
-    nothing
 end
 
 
 function send(c::UDPConnection, data::String, to::IP4 = "127.0.0.1":2000)
     sock = c.server
     send(sock, parse(IPv4, to.ip), to.port, data)
-    nothing
 end
 
 
@@ -160,7 +162,6 @@ respond!(c::UDPConnection, data::String) = send(c, data, c.ip)
 function send(c::Module, data::String, to::IP4 = "127.0.0.1":2000)
     sock = c.server
     send(sock, parse(IPv4, to.ip), to.port, data)
-    nothing
 end
 
 export send, UDPServer, UDPConnection, respond!, start!, IP4, write!, handler, UDPExtension
