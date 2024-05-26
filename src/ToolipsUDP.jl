@@ -188,19 +188,49 @@ function start!(mod::Module = Toolips.server_cli(Main.ARGS), ip::IP4 = Toolips.i
     bind(server, parse(IPv4, ip.ip), ip.port)
     mod.data = data
     mod.server = server
-    t = while server.status > 2
-        con::UDPConnection = UDPConnection(data, server, handlers)
-        try
-            [route!(con, UDPExtension(ext.parameters[1])) for ext in loaded]
-        catch e
-            throw(e)
+    if threads < 2
+        t = while server.status > 2
+            con::UDPConnection = UDPConnection(data, server, handlers)
+            try
+                [route!(con, UDPExtension(ext.parameters[1])) for ext in loaded]
+            catch e
+                throw(e)
+            end
+            try
+                handlers[1].f(con)
+            catch e
+                throw(e)
+            end
         end
-        try
-            handlers[1].f(con)
-        catch e
-            throw(e)
+    else
+        add_workers!(pm, threads)
+        pids::Vector{Int64} = [work.pid for work in filter(w -> typeof(w) != Worker{ParametricProcesses.Async}, pm.workers)]
+        put!(pm, pids, data)
+        selected::Int64 = 1
+        put!(pm, pids, server)
+        put!(pm, pids, handlers)
+        t = while server.status > 2
+            con::UDPConnection = UDPConnection(data, server, handlers)
+            @sync selected += 1
+            if selected > threads
+                @sync selected = minimum(router_threads[1])
+            end
+            if selected < 1
+                
+            end
+            try
+                [route!(con, UDPExtension(ext.parameters[1])) for ext in loaded]
+            catch e
+                throw(e)
+            end
+            try
+                handlers[1].f(con)
+            catch e
+                throw(e)
+            end
         end
     end
+    
     w::Worker{Async} = Worker{Async}("$mod server", rand(1000:3000))
     w.active = true
     w.task = t
