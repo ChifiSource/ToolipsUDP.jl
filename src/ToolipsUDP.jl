@@ -15,7 +15,9 @@ import Toolips.Sockets: send
 import Base: show, read, getindex, setindex!, push!
 
 """
-### UDPConnection <: Toolips.AbstractConnection
+```julia
+UDPConnection <: Toolips.AbstractConnection
+```
 - ip**::String**
 - port**::Int64**
 - packet**::String**
@@ -26,8 +28,12 @@ The `UDPConnection` is provided as an argument to the `Function` provided
 to your `UDPServer` constructor. The `packet` field carries the data currently being transmitted. 
 The `data` field holds indexable data, which may be indexed by indexing the `UDPConnection` with a 
 `Symbol`. Finally, the `ip` and the `port` may be used to find more information on the server.
+
+Typically, the `UDPConnection` is passed, as a singular positional argument, to a **handler**. A **handler** may 
+be created by providing the `handler` function with a `name` and a `Function`. For instance...
 ##### example
-```
+```julia
+
 ```
 ---
 ##### constructors
@@ -78,11 +84,10 @@ end
 handler = UDPHandler
 
 default_handler = handler("default") do c::UDPConnection
-    respond!(c, "hello world :)")
-    @info "responded to a client"
+    respond!(c, )
 end
 
-function start!(mod::Module = server_cli(Main.ARGS), ip::IP4 = ip4_cli(Main.ARGS); threads::Int64 = 1)
+function start!(mod::Module = Toolips.server_cli(Main.ARGS), ip::IP4 = Toolips.ip4_cli(Main.ARGS); threads::Int64 = 1)
     data::Dict{Symbol, Any} = Dict{Symbol, Any}()
     server_ns::Vector{Symbol} = names(mod)
     loaded = []
@@ -100,6 +105,7 @@ function start!(mod::Module = server_cli(Main.ARGS), ip::IP4 = ip4_cli(Main.ARGS
     [on_start(data, ext) for ext in loaded]
     allparams = (m.sig.parameters[3] for m in methods(route!, Any[AbstractConnection, AbstractExtension]))
     filter!(ext -> typeof(ext) in allparams, loaded)
+    # server
     server = UDPSocket()
     bind(server, parse(IPv4, ip.ip), ip.port)
     mod.data = data
@@ -117,7 +123,7 @@ function start!(mod::Module = server_cli(Main.ARGS), ip::IP4 = ip4_cli(Main.ARGS
             throw(e)
         end
     end
-    w::Worker{Async} = Worker{Async}("$mod router", rand(1000:3000))
+    w::Worker{Async} = Worker{Async}("$mod server", rand(1000:3000))
     w.active = true
     w.task = t
     ProcessManager(w)::ProcessManager
