@@ -3,7 +3,22 @@ Created in June, 2022 by
 [chifi - an open source software dynasty.](https://github.com/orgs/ChifiSource)
 by team
 ### ToolipsUDP
-This module provides a high-level `Toolips` interface for UDP servers.
+This module provides a high-level `Toolips` interface for UDP servers. As with regular `Toolips` 
+TCP web-severs, servers are modules and started with `start!` -- distinctly, `ToolipsUDP.start!`. 
+Rather than `Routes` being used via `route`, the `UDPHandler` is used via `handler`.
+```julia
+module NewServer
+using ToolipsUDP
+
+new_handler = handler("new") do c::UDPConnection
+    respond!(c, "hello")
+end
+
+export new_handler, start!
+end
+```
+The API provides the obvious `get_ip` binding, as well as `send` and `respond!` for convenient 
+peer-to-server communication.
 """
 module ToolipsUDP
 using Toolips.Sockets
@@ -13,6 +28,15 @@ using Toolips.ParametricProcesses
 using Toolips.Pkg: activate, add
 import Toolips.Sockets: send
 import Base: show, read, getindex, setindex!, push!
+
+abstract type AbstractUDPHandler <: AbstractRoute end
+
+struct UDPHandler <: AbstractUDPHandler
+    f::Function
+    path::String
+end
+
+handler = UDPHandler
 
 """
 ```julia
@@ -30,21 +54,30 @@ The `data` field holds indexable data, which may be indexed by indexing the `UDP
 `Symbol`. Finally, the `ip` and the `port` may be used to find more information on the server.
 
 Typically, the `UDPConnection` is passed, as a singular positional argument, to a **handler**. A **handler** may 
-be created by providing the `handler` function with a `name` and a `Function`. For instance...
-##### example
+be created by providing the `handler` function with a `name` and a `Function`.
 ```julia
+module MyNewServer
+using ToolipsUDP
 
+mainhandler = handler("main") do c::UDPConnection
+    respond!(c, "hello")
+end
+
+export start!, mainhandler
+end
 ```
----
+Like in `Toolips`, a `UDPConnection` can be indexed with a `Symbol` to get data, 
+and pushed to directly.
 ##### constructors
 - `UDPConnection(data::Dict{Symbol, Any}, server::Sockets.UDPSocket)`
 """
 mutable struct UDPConnection <: AbstractConnection
     ip::IP4
     packet::String
+    handlers::Vector{UDPHandler}
     data::Dict{Symbol, Any}
     server::Sockets.UDPSocket
-    function UDPConnection(data::Dict{Symbol, Any}, server::Sockets.UDPSocket)
+    function UDPConnection(data::Dict{Symbol, Any}, server::Sockets.UDPSocket, handlers::Vector{UDPHandler})
         ip, rawdata = recvfrom(server)
         packet = String(rawdata)
         port = Int64(ip.port)
@@ -53,52 +86,97 @@ mutable struct UDPConnection <: AbstractConnection
     end
 end
 
-write!(c::UDPConnection, a::Any ...) = throw("write?")
+write!(c::UDPConnection, a::Any ...) = throw("`respond!` should be used in place of `write!` for a `UDPHandler`.")
 
 getindex(c::UDPConnection, data::Symbol) = c.data[data]
 setindex!(c::UDPConnection, a::Any, data::Symbol) = c.data[data] = a
 push!(c::UDPConnection, dat::Any ...) = push!(c.data, dat...)
 
+"""
+### abstract type AbstractUDPExtension <: Toolips.AbstractExtension
+An `AbstractUDPExtension` is a `Toolips` extension (`<:AbstractExtension`) 
+that is meant to be loaded in a `UDPServer`. Like regular extensions, these 
+are binded to `on_start` and `route!`.
+
+- See also: `UDPExtension{<:Any}`, `AbstractUDPHandler`, `UDPHandler`, `ToolipsUDP`
+"""
 abstract type AbstractUDPExtension <: AbstractExtension end
 
+"""
+```julia
+UDPExtension{T <: Any} <: AbstractUDPExtension
+```
+This is a blank `UDPExtension` to be used parametrically with multiple 
+dispatch for " quick extensions". For example, we could write an `on_start` dispatch 
+    for a `UDPExtension{:cr}` and export a `UDPExtension{:cr}` to load some data into the server.
+```julia
+module NewServer
+using ToolipsUDP
+import ToolipsUDP: on_start, route!, UDPExtension
+
+# called on each response
+function route!(c::UDPConnection, ext::UDPExtension{:cr})
+
+end
+
+# called when the server starts
+function on_start(data:::Dict{Symbol, Any}, ext::UDPExtension{:cr})
+    push!(data, :count => 5)
+end
+
+mainhandler = handler("counter") do c::UDPConnection
+    c[:count] += 5
+end
+
+data_ext = UDPExtension{:cr}()
+export mainhandler, data_ext
+end
+```
+- See also: `handler`, `UDPConnection`, `on_start`, `route!`, `AbstractUDPExtension`
+```julia
+UDPExtension{T <: Any}()
+```
+"""
 struct UDPExtension{T <: Any} <: AbstractUDPExtension
 
 end
 
+"""
+```julia
+route!(c::UDPConnection, ext::AbstractUDPExtension)
+```
+This dispatch fills the same role `route!` normally fills in base `Toolips`, 
+just for `UDPExtensions`. Like in `Toolips`, this function can be extended to add 
+    server functionality.
+"""
 function route!(c::UDPConnection, ext::AbstractUDPExtension)
 
 end
 
-
+"""
+```julia
+on_start(data::Dict{Symbol, Any}, ext::AbstractUDPExtension)
+```
+This dispatch fills the same role `on_start` normally fills in base `Toolips`, 
+just for `UDPExtensions`. Like in `Toolips`, this function can be extended to add 
+    server functionality.
+"""
 function on_start(data::Dict{Symbol, Any}, ext::AbstractUDPExtension)
 
-end
-
-abstract type AbstractUDPHandler <: AbstractRoute end
-
-struct UDPHandler <: AbstractUDPHandler
-    f::Function
-    name::String
-end
-
-handler = UDPHandler
-
-default_handler = handler("default") do c::UDPConnection
-    respond!(c, )
 end
 
 function start!(mod::Module = Toolips.server_cli(Main.ARGS), ip::IP4 = Toolips.ip4_cli(Main.ARGS); threads::Int64 = 1)
     data::Dict{Symbol, Any} = Dict{Symbol, Any}()
     server_ns::Vector{Symbol} = names(mod)
     loaded = []
-    handler = default_handler
+    handlers = []
     for name in server_ns
         f = getfield(mod, name)
         T = typeof(f)
         if T <: AbstractUDPExtension
             push!(loaded, f)
         elseif T <: AbstractUDPHandler
-            handler = f
+            push!(handlers, f)
         end
         T = nothing
     end
@@ -111,14 +189,14 @@ function start!(mod::Module = Toolips.server_cli(Main.ARGS), ip::IP4 = Toolips.i
     mod.data = data
     mod.server = server
     t = while server.status > 2
-        con::UDPConnection = UDPConnection(data, server)
+        con::UDPConnection = UDPConnection(data, server, handlers)
         try
             [route!(con, UDPExtension(ext.parameters[1])) for ext in loaded]
         catch e
             throw(e)
         end
         try
-            handler.f(con)
+            handlers[1].f(con)
         catch e
             throw(e)
         end
@@ -155,6 +233,7 @@ function send(data::String, to::IP4 = "127.0.0.1":2000; from::Int64 = to.port - 
     close(sock)
 end
 
+get_ip(c::UDPConnection) = c.ip::String
 
 function send(c::UDPConnection, data::String, to::IP4 = "127.0.0.1":2000)
     sock = c.server
@@ -168,6 +247,14 @@ respond!(c::UDPConnection, data::String) = send(c, data, c.ip)
 function send(c::Module, data::String, to::IP4 = "127.0.0.1":2000)
     sock = c.server
     send(sock, parse(IPv4, to.ip), to.port, data)
+end
+
+mutable struct MultiHandler
+    dct::Dict{IP4, String}
+end
+
+function set_handler!(c::UDPConnection, name::String)
+
 end
 
 export send, UDPServer, UDPConnection, respond!, start!, IP4, write!, handler, UDPExtension
