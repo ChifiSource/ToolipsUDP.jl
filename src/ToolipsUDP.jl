@@ -22,8 +22,8 @@ peer-to-server communication.
 """
 module ToolipsUDP
 using Toolips.Sockets
-import Toolips: IP4, AbstractConnection, get_ip, write!, ip4_cli
-import Toolips: route!, on_start, AbstractExtension, AbstractRoute, respond!
+import Toolips: IP4, AbstractConnection, get_ip, write!, ip4_cli, ProcessManager, assign!
+import Toolips: route!, on_start, AbstractExtension, AbstractRoute, respond!, start!, ServerTemplate
 using Toolips.ParametricProcesses
 using Toolips.Pkg: activate, add
 import Toolips.Sockets: send
@@ -165,7 +165,15 @@ function on_start(data::Dict{Symbol, Any}, ext::AbstractUDPExtension)
 
 end
 
-function start!(mod::Module = Toolips.server_cli(Main.ARGS), ip::IP4 = Toolips.ip4_cli(Main.ARGS); threads::Int64 = 1)
+const UDP = ServerTemplate{:UDP}()
+
+"""
+```julia
+ToolipsUDP.start!(mod::Module = Toolips.server_cli(Main.ARGS), ip::IP4 = Toolips.ip4_cli(Main.ARGS); threads::Int64 = 1)
+```
+
+"""
+function start!(st::Type{ServerTemplate{:UDP}}, mod::Module = Toolips.server_cli(Main.ARGS);ip::IP4 = Toolips.ip4_cli(Main.ARGS), threads::Int64 = 1)
     data::Dict{Symbol, Any} = Dict{Symbol, Any}()
     server_ns::Vector{Symbol} = names(mod)
     loaded = []
@@ -235,6 +243,10 @@ function start!(mod::Module = Toolips.server_cli(Main.ARGS), ip::IP4 = Toolips.i
     w.active = true
     w.task = t
     ProcessManager(w)::ProcessManager
+end
+
+function route_server(pm::ProcessManager, selected::Int64)
+
 end
 
 function new_app(name::String)
