@@ -23,7 +23,7 @@ peer-to-server communication.
 module ToolipsUDP
 using Toolips.Sockets
 import Toolips: IP4, AbstractConnection, get_ip, write!, ip4_cli, ProcessManager, assign!
-import Toolips: route!, on_start, AbstractExtension, AbstractRoute, respond!, start!, ServerTemplate
+import Toolips: route!, on_start, AbstractExtension, AbstractRoute, respond!, start!, ServerTemplate, new_app
 using Toolips.ParametricProcesses
 using Toolips.Pkg: activate, add
 import Toolips.Sockets: send
@@ -249,7 +249,7 @@ function route_server(pm::ProcessManager, selected::Int64)
 
 end
 
-function new_app(name::String)
+function new_app(st::ServerTemplate{UDP}, name::String)
     new_app(name)
     activate(name)
     add("ToolipsUDP")
