@@ -22,21 +22,28 @@ peer-to-server communication.
 """
 module ToolipsUDP
 using Toolips.Sockets
-import Toolips: IP4, AbstractConnection, get_ip, write!, ip4_cli, ProcessManager, assign!
+import Toolips: IP4, AbstractConnection, get_ip, write!, ip4_cli, ProcessManager, assign!, server_cli
 import Toolips: route!, on_start, AbstractExtension, AbstractRoute, respond!, start!, ServerTemplate, new_app
 using Toolips.ParametricProcesses
 using Toolips.Pkg: activate, add
 import Toolips.Sockets: send
 import Base: show, read, getindex, setindex!, push!
 
+
 abstract type AbstractUDPHandler <: AbstractRoute end
 
 struct UDPHandler <: AbstractUDPHandler
     f::Function
-    path::String
 end
 
-handler = UDPHandler
+struct NamedHandler <: AbstractUDPHandler
+    f::Function
+    name::String
+end
+
+handler(f::Function) = UDPHandler(f)
+
+handler(f::Function, name::String) = NamedHandler(f, name)
 
 """
 ```julia
@@ -59,7 +66,7 @@ be created by providing the `handler` function with a `name` and a `Function`.
 module MyNewServer
 using ToolipsUDP
 
-mainhandler = handler("main") do c::UDPConnection
+mainhandler = handler() do c::UDPConnection
     respond!(c, "hello")
 end
 
@@ -74,10 +81,10 @@ and pushed to directly.
 mutable struct UDPConnection <: AbstractConnection
     ip::IP4
     packet::String
-    handlers::Vector{UDPHandler}
+    handlers::Vector{AbstractUDPHandler}
     data::Dict{Symbol, Any}
     server::Sockets.UDPSocket
-    function UDPConnection(data::Dict{Symbol, Any}, server::Sockets.UDPSocket, handlers::Vector{UDPHandler})
+    function UDPConnection(data::Dict{Symbol, Any}, server::Sockets.UDPSocket, handlers::Vector{AbstractUDPHandler})
         ip, rawdata = recvfrom(server)
         packet = String(rawdata)
         port = Int64(ip.port)
@@ -165,19 +172,33 @@ function on_start(data::Dict{Symbol, Any}, ext::AbstractUDPExtension)
 
 end
 
-const UDP = ServerTemplate{:UDP}()
+abstract type UDP <: ServerTemplate end
 
 """
 ```julia
-ToolipsUDP.start!(mod::Module = Toolips.server_cli(Main.ARGS), ip::IP4 = Toolips.ip4_cli(Main.ARGS); threads::Int64 = 1)
+ToolipsUDP.start!(st::Type{ServerTemplate{:UDP}}, mod::Module = Toolips.server_cli(Main.ARGS), ip::IP4 = Toolips.ip4_cli(Main.ARGS); threads::Int64 = 1)
 ```
+Starts a Server Module as a `ToolipsUDPServer`. `UDP` is provided as a constant from `ToolipsUDP`.
+```julia
+module MyServer
+using ToolipsUDP
 
+responder = handler() do c::UDPConnection
+    data = c.packet
+    println(c.packet)
+end
+
+export responder
+end
+
+using ToolipsUDP; start!(UDP, MyServer)
+```
 """
-function start!(st::Type{ServerTemplate{:UDP}}, mod::Module = Toolips.server_cli(Main.ARGS);ip::IP4 = Toolips.ip4_cli(Main.ARGS), threads::Int64 = 1)
+function start!(st::Type{UDP}, mod::Module = server_cli(Main.ARGS);ip::IP4 = ip4_cli(Main.ARGS), threads::Int64 = 1)
     data::Dict{Symbol, Any} = Dict{Symbol, Any}()
     server_ns::Vector{Symbol} = names(mod)
     loaded = []
-    handlers = []
+    handlers = Vector{AbstractUDPHandler}()
     for name in server_ns
         f = getfield(mod, name)
         T = typeof(f)
@@ -199,6 +220,7 @@ function start!(st::Type{ServerTemplate{:UDP}}, mod::Module = Toolips.server_cli
     if threads < 2
         t = while server.status > 2
             con::UDPConnection = UDPConnection(data, server, handlers)
+            println("hello?")
             try
                 [route!(con, UDPExtension(ext.parameters[1])) for ext in loaded]
             catch e
@@ -238,7 +260,6 @@ function start!(st::Type{ServerTemplate{:UDP}}, mod::Module = Toolips.server_cli
             end
         end
     end
-    
     w::Worker{Async} = Worker{Async}("$mod server", rand(1000:3000))
     w.active = true
     w.task = t
@@ -249,7 +270,7 @@ function route_server(pm::ProcessManager, selected::Int64)
 
 end
 
-function new_app(st::ServerTemplate{UDP}, name::String)
+function new_app(st::UDP, name::String)
     new_app(name)
     activate(name)
     add("ToolipsUDP")
