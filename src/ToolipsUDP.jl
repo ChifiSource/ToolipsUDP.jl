@@ -89,7 +89,7 @@ mutable struct UDPConnection <: AbstractConnection
         packet = String(rawdata)
         port = Int64(ip.port)
         ip = string(ip.host)
-        new(ip:port, packet, data, server)::UDPConnection
+        new(ip:port, packet, handlers, data, server)::UDPConnection
     end
 end
 
@@ -218,9 +218,8 @@ function start!(st::Type{UDP}, mod::Module = server_cli(Main.ARGS);ip::IP4 = ip4
     mod.data = data
     mod.server = server
     if threads < 2
-        t = while server.status > 2
+        t = @async while server.status > 2
             con::UDPConnection = UDPConnection(data, server, handlers)
-            println("hello?")
             try
                 [route!(con, UDPExtension(ext.parameters[1])) for ext in loaded]
             catch e
@@ -239,7 +238,7 @@ function start!(st::Type{UDP}, mod::Module = server_cli(Main.ARGS);ip::IP4 = ip4
         selected::Int64 = 1
         put!(pm, pids, server)
         put!(pm, pids, handlers)
-        t = while server.status > 2
+        t = @async while server.status > 2
             con::UDPConnection = UDPConnection(data, server, handlers)
             @sync selected += 1
             if selected > threads
