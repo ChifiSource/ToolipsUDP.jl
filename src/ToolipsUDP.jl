@@ -194,7 +194,7 @@ end
 using ToolipsUDP; start!(UDP, MyServer)
 ```
 """
-function start!(st::Type{UDP}, mod::Module = server_cli(Main.ARGS);ip::IP4 = ip4_cli(Main.ARGS), threads::Int64 = 1)
+function start!(st::Type{UDP}, mod::Module = server_cli(Main.ARGS);ip::IP4 = "127.0.0.1":2000, threads::Int64 = 1)
     data::Dict{Symbol, Any} = Dict{Symbol, Any}()
     server_ns::Vector{Symbol} = names(mod)
     loaded = []
@@ -209,7 +209,15 @@ function start!(st::Type{UDP}, mod::Module = server_cli(Main.ARGS);ip::IP4 = ip4
         end
         T = nothing
     end
-    [on_start(data, ext) for ext in loaded]
+    [begin
+        on_start(data, ext)
+        T = string(typeof(ext))
+        if contains(T, ".")
+            splits = split(T, ".")
+            T = string(splits[length(splits)])
+        end
+        push!(data, Symbol(T) => ext)
+    end for ext in loaded]
     allparams = (m.sig.parameters[3] for m in methods(route!, Any[AbstractConnection, AbstractExtension]))
     filter!(ext -> typeof(ext) in allparams, loaded)
     # server
@@ -220,10 +228,15 @@ function start!(st::Type{UDP}, mod::Module = server_cli(Main.ARGS);ip::IP4 = ip4
     if threads < 2
         t = @async while server.status > 2
             con::UDPConnection = UDPConnection(data, server, handlers)
+            stop = nothing
             try
-                [route!(con, UDPExtension(ext.parameters[1])) for ext in loaded]
+                stop = [route!(con, ext) for ext in loaded]
             catch e
                 throw(e)
+            end
+            f = findfirst(x -> x == false, stop)
+            if ~(isnothing(f))
+                continue
             end
             try
                 handlers[1].f(con)
@@ -245,7 +258,16 @@ function start!(st::Type{UDP}, mod::Module = server_cli(Main.ARGS);ip::IP4 = ip4
                 @sync selected = minimum(router_threads[1])
             end
             if selected < 1
-                
+                try
+                    [route!(con, UDPExtension(ext.parameters[1])) for ext in loaded]
+                catch e
+                    throw(e)
+                end
+                try
+                    handlers[1].f(con)
+                catch e
+                    throw(e)
+                end
             end
             try
                 [route!(con, UDPExtension(ext.parameters[1])) for ext in loaded]
@@ -265,9 +287,6 @@ function start!(st::Type{UDP}, mod::Module = server_cli(Main.ARGS);ip::IP4 = ip4
     ProcessManager(w)::ProcessManager
 end
 
-function route_server(pm::ProcessManager, selected::Int64)
-
-end
 
 function new_app(st::UDP, name::String)
     new_app(name)
@@ -295,7 +314,9 @@ function send(data::String, to::IP4 = "127.0.0.1":2000; from::Int64 = to.port - 
     close(sock)
 end
 
-get_ip(c::UDPConnection) = c.ip::String
+get_ip(c::UDPConnection) = c.ip.ip::String
+
+get_ip4(c::UDPConnection) = c.ip::IP4
 
 function send(c::UDPConnection, data::String, to::IP4 = "127.0.0.1":2000)
     sock = c.server
@@ -311,14 +332,25 @@ function send(c::Module, data::String, to::IP4 = "127.0.0.1":2000)
     send(sock, parse(IPv4, to.ip), to.port, data)
 end
 
-mutable struct MultiHandler
-    dct::Dict{IP4, String}
+mutable struct MultiHandler <: AbstractUDPExtension
+    clients::Dict{String, String}
+    MultiHandler() = new(Dict{String, String}())
 end
 
 function set_handler!(c::UDPConnection, name::String)
-
+    c[:MultiHandler].clients[get_ip(c)] = name
 end
 
-export send, UDPServer, UDPConnection, respond!, start!, IP4, write!, handler, UDPExtension
+function route!(c::UDPConnection, mh::MultiHandler)
+    ip = get_ip(c)
+    if ip in keys(mh.clients)
+        handler_name::String = mh.clients[ip]
+        f = findfirst(r -> if typeof(r) == NamedHandler r.name == handler_name else false end, c.handlers)
+        c.handlers[f].f(c)
+        false
+    end
+end
+
+export send, UDPServer, UDPConnection, respond!, start!, IP4, write!, handler, UDPExtension, UDP, set_handler!
 
 end # module ToolipsUDP
