@@ -1,5 +1,7 @@
 <div align="center"><img src="https://github.com/ChifiSource/image_dump/raw/main/toolips/toolipsudp.png"></img></div>
 
+### this is ToolipsUDP 0.1, compatible with Toolips 0.2
+
 `ToolipsUDP` provides high-level [toolips](https://github.com/ChifiSource/Toolips.jl)-style functionality to UDP networking projects. This functionality is facilitated via the `UDPServer` and `UDPConnection` types. 
 
 ###### creating a UDP server
