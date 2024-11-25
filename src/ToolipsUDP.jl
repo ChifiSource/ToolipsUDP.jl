@@ -21,12 +21,11 @@ The API provides the obvious `get_ip` binding, as well as `send` and `respond!` 
 peer-to-server communication.
 """
 module ToolipsUDP
-using Toolips.Sockets
 import Toolips: IP4, AbstractConnection, get_ip, write!, ip4_cli, ProcessManager, assign!, server_cli
 import Toolips: route!, on_start, AbstractExtension, AbstractRoute, respond!, start!, ServerTemplate, new_app, @everywhere
 using Toolips.ParametricProcesses
-using Toolips.Pkg: activate, add
-import Toolips.Sockets: send
+using Toolips.Pkg: activate, add, generate
+import Toolips.Sockets: send, bind, UDPSocket
 import Base: show, read, getindex, setindex!, push!
 
 
@@ -83,8 +82,8 @@ mutable struct UDPConnection <: AbstractConnection
     packet::String
     handlers::Vector{AbstractUDPHandler}
     data::Dict{Symbol, Any}
-    server::Sockets.UDPSocket
-    function UDPConnection(data::Dict{Symbol, Any}, server::Sockets.UDPSocket, handlers::Vector{AbstractUDPHandler})
+    server::UDPSocket
+    function UDPConnection(data::Dict{Symbol, Any}, server::UDPSocket, handlers::Vector{AbstractUDPHandler})
         ip, rawdata = recvfrom(server)
         packet = String(rawdata)
         port = Int64(ip.port)
@@ -314,8 +313,8 @@ function start!(st::Type{UDP}, mod::Module = server_cli(Main.ARGS);ip::IP4 = "12
 end
 
 
-function new_app(st::UDP, name::String)
-    new_app(name)
+function new_app(st::Type{UDP}, name::String)
+    generate(name)
     activate(name)
     add("ToolipsUDP")
     open("$name/src/$name.jl", "w") do o::IO
@@ -331,6 +330,7 @@ function new_app(st::UDP, name::String)
         end
         """)
     end
+    return
 end
 
 function send(data::String, to::IP4 = "127.0.0.1":2000; from::Int64 = to.port - 5)
