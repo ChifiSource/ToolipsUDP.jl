@@ -193,7 +193,7 @@ end
 using ToolipsUDP; start!(UDP, MyServer)
 ```
 """
-function start!(st::ServerTemplate{:UDP}, mod::Module; ip::IP4 = "127.0.0.1":2000, threads::Int64 = 1)
+function start!(st::Type{ServerTemplate{:UDP}}, mod::Module; ip::IP4 = "127.0.0.1":2000, threads::Int64 = 1)
     data::Dict{Symbol, Any} = Dict{Symbol, Any}()
     server_ns::Vector{Symbol} = names(mod)
     loaded = []
@@ -313,7 +313,7 @@ function start!(st::ServerTemplate{:UDP}, mod::Module; ip::IP4 = "127.0.0.1":200
 end
 
 
-function new_app(st::ServerTemplate{:UDP}, name::String)
+function new_app(st::Type{ServerTemplate{:UDP}}, name::String)
     generate(name)
     activate(name)
     add("ToolipsUDP")
