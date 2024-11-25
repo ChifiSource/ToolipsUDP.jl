@@ -249,7 +249,7 @@ function start!(st::Type{ServerTemplate{:UDP}}, mod::Module; ip::IP4 = "127.0.0.
         pids::Vector{Int64} = [work.pid for work in filter(w -> typeof(w) != Worker{ParametricProcesses.Async}, pm.workers)]
         Main.eval(Meta.parse("""using ToolipsUDP: @everywhere; @everywhere begin
             using ToolipsUDP
-            using Main.$mod
+            using $mod
         end"""))
         put!(pm, pids, Main.mod)
         put!(pm, pids, data)
@@ -322,11 +322,11 @@ function new_app(st::Type{ServerTemplate{:UDP}}, name::String)
         """module $name
         using ToolipsUDP
 
-        handler = route() do c::UDPConnection
+        default_handler = handler do c::UDPConnection
             respond(c, "hello world!")
         end
 
-        export handler
+        export default_handler
         end
         """)
     end
