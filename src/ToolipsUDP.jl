@@ -22,7 +22,7 @@ peer-to-server communication.
 """
 module ToolipsUDP
 using Toolips.Sockets
-import Toolips: IP4, AbstractConnection, get_ip, write!, ip4_cli, ProcessManager, assign!
+import Toolips: IP4, AbstractConnection, get_ip, write!, ip4_cli, ProcessManager, assign!, AbstractIOConnection
 import Toolips: route!, on_start, AbstractExtension, AbstractRoute, respond!, start!, ServerTemplate, new_app, @everywhere
 using Toolips.ParametricProcesses
 using Toolips.Pkg: activate, add, generate
@@ -92,6 +92,14 @@ mutable struct UDPConnection <: AbstractConnection
         ip = string(ip.host)
         new(ip:port, packet, handlers, data, server)::UDPConnection
     end
+end
+
+mutable struct UDPIOConnection <: AbstractIOConnection
+    ip::IP4
+    packet::String
+    handlers::Vector{AbstractUDPHandler}
+    data::Dict{Symbol, Any}
+    stream::String
 end
 
 write!(c::UDPConnection, a::Any ...) = throw("`respond!` should be used in place of `write!` for a `UDPHandler`.")
@@ -193,8 +201,9 @@ end
 using ToolipsUDP; start!(UDP, MyServer)
 ```
 """
-function start!(st::Type{ServerTemplate{:UDP}}, mod::Module; ip::IP4 = "127.0.0.1":2000, threads::Int64 = 1)
+function start!(st::Type{ServerTemplate{:UDP}}, mod::Module; ip::IP4 = "127.0.0.1":2000, threads::UnitRange{Int64} = 1:1)
     data::Dict{Symbol, Any} = Dict{Symbol, Any}()
+    router_threads = maximum(threads)
     server_ns::Vector{Symbol} = names(mod)
     loaded = []
     handlers = Vector{AbstractUDPHandler}()
@@ -223,11 +232,12 @@ function start!(st::Type{ServerTemplate{:UDP}}, mod::Module; ip::IP4 = "127.0.0.
     server = UDPSocket()
     bind(server, parse(IPv4, ip.ip), ip.port)
     mod.data = data
+    con::UDPConnection = UDPConnection(data, server, handlers)
     mod.server = server
     pm::ProcessManager = ProcessManager()
-    if threads < 2
+    if router_threads < 2
         t = @async while server.status > 2
-            con::UDPConnection = UDPConnection(data, server, handlers)
+            con = UDPConnection(data, server, handlers)
             stop = nothing
             try
                 stop = [route!(con, ext) for ext in loaded]
@@ -245,7 +255,7 @@ function start!(st::Type{ServerTemplate{:UDP}}, mod::Module; ip::IP4 = "127.0.0.
             end
         end
     else
-        add_workers!(pm, threads)
+        add_workers!(pm, router_threads)
         pids::Vector{Int64} = [work.pid for work in filter(w -> typeof(w) != Worker{ParametricProcesses.Async}, pm.workers)]
         Main.eval(Meta.parse("""using ToolipsUDP: @everywhere; @everywhere begin
             using ToolipsUDP
@@ -256,26 +266,13 @@ function start!(st::Type{ServerTemplate{:UDP}}, mod::Module; ip::IP4 = "127.0.0.
         selected::Int64 = 1
         put!(pm, pids, server)
         put!(pm, pids, handlers)
-
-        task = new_job() do
-            try
-                [route!(con, UDPExtension(ext.parameters[1])) for ext in loaded]
-            catch e
-                throw(e)
-            end
-            try
-                handlers[1].f(con)
-            catch e
-                throw(e)
-            end
-        end
+        put!(pm, pids, con)
         while server.status > 2
-            con::UDPConnection = UDPConnection(data, server, handlers)
             @sync selected += 1
-            if selected > threads
-                @sync selected = minimum(router_threads[1])
+            if selected > router_threads
+                @sync selected = minimum(threads)
             end
-            if selected < 1
+            if selected < 2
                 try
                     [route!(con, UDPExtension(ext.parameters[1])) for ext in loaded]
                 catch e
@@ -288,7 +285,6 @@ function start!(st::Type{ServerTemplate{:UDP}}, mod::Module; ip::IP4 = "127.0.0.
                 end
                 return
             end
-            put!(pm, selected, con)
             job = new_job() do
                 try
                     [route!(con, UDPExtension(ext.parameters[1])) for ext in loaded]
@@ -322,11 +318,11 @@ function new_app(st::Type{ServerTemplate{:UDP}}, name::String)
         """module $name
         using ToolipsUDP
 
-        default_handler = handler do c::UDPConnection
-            respond(c, "hello world!")
+        default_handler = handler() do c::UDPConnection
+            respond!(c, "hello world!")
         end
 
-        export default_handler
+        export default_handler, start!
         end
         """)
     end
