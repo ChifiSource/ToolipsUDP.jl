@@ -21,11 +21,12 @@ The API provides the obvious `get_ip` binding, as well as `send` and `respond!` 
 peer-to-server communication.
 """
 module ToolipsUDP
+using Toolips.Sockets
 import Toolips: IP4, AbstractConnection, get_ip, write!, ip4_cli, ProcessManager, assign!, server_cli
 import Toolips: route!, on_start, AbstractExtension, AbstractRoute, respond!, start!, ServerTemplate, new_app, @everywhere
 using Toolips.ParametricProcesses
 using Toolips.Pkg: activate, add, generate
-import Toolips.Sockets: send, bind, UDPSocket
+import Toolips.Sockets: send, bind
 import Base: show, read, getindex, setindex!, push!
 
 
@@ -82,8 +83,8 @@ mutable struct UDPConnection <: AbstractConnection
     packet::String
     handlers::Vector{AbstractUDPHandler}
     data::Dict{Symbol, Any}
-    server::UDPSocket
-    function UDPConnection(data::Dict{Symbol, Any}, server::UDPSocket, handlers::Vector{AbstractUDPHandler})
+    server::Sockets.UDPSocket
+    function UDPConnection(data::Dict{Symbol, Any}, server::Sockets.UDPSocket, handlers::Vector{AbstractUDPHandler})
         ip, rawdata = recvfrom(server)
         packet = String(rawdata)
         port = Int64(ip.port)
@@ -171,7 +172,7 @@ function on_start(data::Dict{Symbol, Any}, ext::AbstractUDPExtension)
 
 end
 
-abstract type UDP <: ServerTemplate end
+abstract type UDPServer <: ServerTemplate end
 
 """
 ```julia
@@ -193,7 +194,7 @@ end
 using ToolipsUDP; start!(UDP, MyServer)
 ```
 """
-function start!(st::Type{UDP}, mod::Module = server_cli(Main.ARGS);ip::IP4 = "127.0.0.1":2000, threads::Int64 = 1)
+function start!(st::Type{UDPServer}, mod::Module = server_cli(Main.ARGS);ip::IP4 = "127.0.0.1":2000, threads::Int64 = 1)
     data::Dict{Symbol, Any} = Dict{Symbol, Any}()
     server_ns::Vector{Symbol} = names(mod)
     loaded = []
@@ -313,7 +314,7 @@ function start!(st::Type{UDP}, mod::Module = server_cli(Main.ARGS);ip::IP4 = "12
 end
 
 
-function new_app(st::Type{UDP}, name::String)
+function new_app(st::Type{UDPServer}, name::String)
     generate(name)
     activate(name)
     add("ToolipsUDP")
@@ -377,6 +378,6 @@ function route!(c::UDPConnection, mh::MultiHandler)
     end
 end
 
-export send, UDPServer, UDPConnection, respond!, start!, IP4, write!, handler, UDPExtension, UDP, set_handler!
+export send, UDPServer, UDPConnection, respond!, start!, IP4, write!, handler, UDPExtension, UDPServer, set_handler!
 
 end # module ToolipsUDP
