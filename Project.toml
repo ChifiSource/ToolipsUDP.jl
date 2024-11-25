@@ -8,4 +8,4 @@ Toolips = "a47e2ad8-fcf7-417c-9746-32b9bdf220bd"
 
 [compat]
 julia = "1.5"
-Toolips = "0.3"
+Toolips = "0.3.1"
