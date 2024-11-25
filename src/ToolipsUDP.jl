@@ -23,7 +23,7 @@ peer-to-server communication.
 module ToolipsUDP
 using Toolips.Sockets
 import Toolips: IP4, AbstractConnection, get_ip, write!, ip4_cli, ProcessManager, assign!, server_cli
-import Toolips: route!, on_start, AbstractExtension, AbstractRoute, respond!, start!, ServerTemplate, new_app
+import Toolips: route!, on_start, AbstractExtension, AbstractRoute, respond!, start!, ServerTemplate, new_app, @everywhere
 using Toolips.ParametricProcesses
 using Toolips.Pkg: activate, add
 import Toolips.Sockets: send
@@ -225,6 +225,7 @@ function start!(st::Type{UDP}, mod::Module = server_cli(Main.ARGS);ip::IP4 = "12
     bind(server, parse(IPv4, ip.ip), ip.port)
     mod.data = data
     mod.server = server
+    pm::ProcessManager = ProcessManager()
     if threads < 2
         t = @async while server.status > 2
             con::UDPConnection = UDPConnection(data, server, handlers)
@@ -247,11 +248,29 @@ function start!(st::Type{UDP}, mod::Module = server_cli(Main.ARGS);ip::IP4 = "12
     else
         add_workers!(pm, threads)
         pids::Vector{Int64} = [work.pid for work in filter(w -> typeof(w) != Worker{ParametricProcesses.Async}, pm.workers)]
+        Main.eval(Meta.parse("""using ToolipsUDP: @everywhere; @everywhere begin
+            using ToolipsUDP
+            using Main.$mod
+        end"""))
+        put!(pm, pids, Main.mod)
         put!(pm, pids, data)
         selected::Int64 = 1
         put!(pm, pids, server)
         put!(pm, pids, handlers)
-        t = @async while server.status > 2
+
+        task = new_job() do
+            try
+                [route!(con, UDPExtension(ext.parameters[1])) for ext in loaded]
+            catch e
+                throw(e)
+            end
+            try
+                handlers[1].f(con)
+            catch e
+                throw(e)
+            end
+        end
+        while server.status > 2
             con::UDPConnection = UDPConnection(data, server, handlers)
             @sync selected += 1
             if selected > threads
@@ -268,23 +287,30 @@ function start!(st::Type{UDP}, mod::Module = server_cli(Main.ARGS);ip::IP4 = "12
                 catch e
                     throw(e)
                 end
+                return
             end
-            try
-                [route!(con, UDPExtension(ext.parameters[1])) for ext in loaded]
-            catch e
-                throw(e)
+            put!(pm, selected, con)
+            job = new_job() do
+                try
+                    [route!(con, UDPExtension(ext.parameters[1])) for ext in loaded]
+                catch e
+                    throw(e)
+                end
+                try
+                    con.handlers[1].f(con)
+                catch e
+                    throw(e)
+                end
+                return
             end
-            try
-                handlers[1].f(con)
-            catch e
-                throw(e)
-            end
+            assign!(pm, selected, job)
         end
     end
     w::Worker{Async} = Worker{Async}("$mod server", rand(1000:3000))
     w.active = true
     w.task = t
-    ProcessManager(w)::ProcessManager
+    push!(pm.workers, w)
+    pm::ProcessManager
 end
 
 
