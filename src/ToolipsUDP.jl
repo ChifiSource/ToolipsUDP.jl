@@ -268,11 +268,16 @@ function start!(st::Type{ServerTemplate{:UDP}}, mod::Module; ip::IP4 = "127.0.0.
         put!(pm, pids, loaded)
         put!(pm, pids, iocon)
         selected::Int64 = minimum(threads) - 1
+        stop = nothing
         job = new_job() do
             try
-                [route!(iocon, UDPExtension(ext.parameters[1])) for ext in loaded]
+                stop = [route!(iocon, UDPExtension(ext.parameters[1])) for ext in loaded]
             catch e
                 throw(e)
+            end
+            f = findfirst(x -> x == false, stop)
+            if ~(isnothing(f))
+                continue
             end
             try
                 iocon.handlers[1].f(iocon)
