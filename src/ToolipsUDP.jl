@@ -92,7 +92,8 @@ NamedHandler <: AbstractUDPHandler
 - name**::String**
 
 A `NamedHandler` is a named version of a `UDPHandler`. This naming allows 
-for handlers to be set. This is primarily intended to be 
+for handlers to be set. We create this by providing a `String` as an 
+    argument to the `handler` `Function`. This is primarily intended to be 
 used with the `MultiHandler` extension, where we are able to 
 set the current handler for a future incoming request.
 
@@ -104,10 +105,32 @@ NamedHandler(f::Function, name::String)
 ```example
 module NewUDPServer
 using ToolipsUDP
+password = "123"
 
+main_handler = handler() do c::AbstractUDPConnection
+    if c.packet == password
+        set_handler!(c, "private_message")
+        respond!(c, "you are confirmed")
+        return
+    end
+    respond!(c, "you are denied")
+end
 
+ #  vvv NamedHandler
+private_msg = handler("private_message") do c::AbstractUDPConnection
+    respond!(c, "this is my private message")
+    set_handler!(c, "sendback")
+end
 
-export start!, UDP, main_handler
+welcome_message = handler("sendback") do c::AbstractUDPConnection
+    respond!(c, "ok, you're locked out again.")
+    remove_handler!(c)
+end
+
+new_handler = MultiHandler()
+
+export start!, UDP, main_handler, new_handler
+export private_msg
 end
 ```
 """
@@ -460,6 +483,8 @@ function set_handler!(c::UDPConnection, name::String)
     c[:MultiHandler].clients[get_ip(c)] = name
 end
 
+remove_handler!(c::UDPConnection, name::String) = delete!(c[:MultiHandler].clients, get_ip(c))
+
 function route!(c::UDPConnection, mh::MultiHandler)
     ip = get_ip(c)
     if ip in keys(mh.clients)
@@ -471,5 +496,5 @@ function route!(c::UDPConnection, mh::MultiHandler)
 end
 
 export send, UDPConnection, respond!, start!, IP4, write!, handler, UDPExtension, set_handler!, UDP, AbstractUDPConnection
-
+export remove_handler!
 end # module ToolipsUDP
