@@ -97,7 +97,7 @@ for handlers to be set. We create this by providing a `String` as an
 used with the `MultiHandler` extension, where we are able to 
 set the current handler for a future incoming request.
 
-- See also: `handler`, `UDPConnection`, `start!`, `ToolipsUDP`, `respond!`, `send`, `UDPHandler`
+- See also: `handler`, `UDPConnection`, `start!`, `respond!`, `UDPHandler`, `set_handler!`, `remove_handler!`, `MultiHandler`
 ```julia
 NamedHandler(f::Function, name::String)
 ```
@@ -139,42 +139,60 @@ struct NamedHandler <: AbstractUDPHandler
     name::String
 end
 
+"""
+```julia
+handler(f::Function, ...) -> ::AbstractUDPHandler
+```
+The `handler` `Function` creates a `UDPHandler` that handles 
+incoming packets and responds to them. If a `Function` is provided, 
+we will get a `UDPHandler`. If a `Function` and a `String` are provided, we 
+get a `NamedHandler` in return.
+```julia
+handler(f::Function) -> ::UDPHandler
+handler(f::Function, name::String) -> ::NamedHandler
+```
+---
+```example
+module SampleServer
+
+sample_handler = handler() do c::UDPConnection
+                           # ^ ::AbstractUDPConnection when multi-threading.
+    println("handled a client")
+end
+
+export sample_handler
+end
+```
+"""
+function handler end
+
 handler(f::Function) = UDPHandler(f)
 
 handler(f::Function, name::String) = NamedHandler(f, name)
 
+"""
+### abstract type AbstractUDPConnection <: Toolips.AbstractConnection
+
+- See also: 
+##### consistencies
+- `ip`**::String**
+- `port`**::Int64**
+- `packet`**::String**
+- `data`**::Dict{Symbol, Any}**
+"""
 abstract type AbstractUDPConnection <: AbstractConnection end
 
 """
 ```julia
-UDPConnection <: Toolips.AbstractConnection
+UDPConnection <: Toolips.AbstractUDPConnection
 ```
 - ip**::String**
 - port**::Int64**
 - packet**::String**
-- data**::Dict{Symbol, String}**
+- data**::Dict{Symbol, Any}**
 - server**::Sockets.UDPSocket**
 ---
-The `UDPConnection` is provided as an argument to the `Function` provided 
-to your `UDPServer` constructor. The `packet` field carries the data currently being transmitted. 
-The `data` field holds indexable data, which may be indexed by indexing the `UDPConnection` with a 
-`Symbol`. Finally, the `ip` and the `port` may be used to find more information on the server.
 
-Typically, the `UDPConnection` is passed, as a singular positional argument, to a **handler**. A **handler** may 
-be created by providing the `handler` function with a `name` and a `Function`.
-```julia
-module MyNewServer
-using ToolipsUDP
-
-mainhandler = handler() do c::UDPConnection
-    respond!(c, "hello")
-end
-
-export start!, mainhandler
-end
-```
-Like in `Toolips`, a `UDPConnection` can be indexed with a `Symbol` to get data, 
-and pushed to directly.
 ##### constructors
 - `UDPConnection(data::Dict{Symbol, Any}, server::Sockets.UDPSocket)`
 """
@@ -193,6 +211,20 @@ mutable struct UDPConnection <: AbstractUDPConnection
     end
 end
 
+"""
+```julia
+UDPIOConnection <: Toolips.AbstractUDPConnection
+```
+- ip**::String**
+- port**::Int64**
+- packet**::String**
+- data**::Dict{Symbol, Any}**
+- server**::Sockets.UDPSocket**
+---
+
+##### constructors
+- `UDPConnection(data::Dict{Symbol, Any}, server::Sockets.UDPSocket)`
+"""
 mutable struct UDPIOConnection <: AbstractUDPConnection
     ip::IP4
     packet::String
