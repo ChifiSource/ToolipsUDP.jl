@@ -46,6 +46,8 @@ handler(f::Function) = UDPHandler(f)
 
 handler(f::Function, name::String) = NamedHandler(f, name)
 
+abstract type AbstractUDPConnection <: AbstractConnection end
+
 """
 ```julia
 UDPConnection <: Toolips.AbstractConnection
@@ -79,7 +81,7 @@ and pushed to directly.
 ##### constructors
 - `UDPConnection(data::Dict{Symbol, Any}, server::Sockets.UDPSocket)`
 """
-mutable struct UDPConnection <: AbstractConnection
+mutable struct UDPConnection <: AbstractUDPConnection
     ip::IP4
     packet::String
     handlers::Vector{AbstractUDPHandler}
@@ -94,7 +96,7 @@ mutable struct UDPConnection <: AbstractConnection
     end
 end
 
-mutable struct UDPIOConnection <: AbstractIOConnection
+mutable struct UDPIOConnection <: AbstractUDPConnection
     ip::IP4
     packet::String
     handlers::Vector{AbstractUDPHandler}
@@ -102,11 +104,11 @@ mutable struct UDPIOConnection <: AbstractIOConnection
     stream::String
 end
 
-write!(c::UDPConnection, a::Any ...) = throw("`respond!` should be used in place of `write!` for a `UDPHandler`.")
+write!(c::AbstractUDPConnection, a::Any ...) = throw("`respond!` should be used in place of `write!` for a `UDPHandler`.")
 
-getindex(c::UDPConnection, data::Symbol) = c.data[data]
-setindex!(c::UDPConnection, a::Any, data::Symbol) = c.data[data] = a
-push!(c::UDPConnection, dat::Any ...) = push!(c.data, dat...)
+getindex(c::AbstractUDPConnection, data::Symbol) = c.data[data]
+setindex!(c::AbstractUDPConnection, a::Any, data::Symbol) = c.data[data] = a
+push!(c::AbstractUDPConnection, dat::Any ...) = push!(c.data, dat...)
 
 """
 ### abstract type AbstractUDPExtension <: Toolips.AbstractExtension
@@ -235,6 +237,7 @@ function start!(st::Type{ServerTemplate{:UDP}}, mod::Module; ip::IP4 = "127.0.0.
     con::UDPConnection = UDPConnection(data, server, handlers)
     mod.server = server
     pm::ProcessManager = ProcessManager()
+    t = nothing
     if router_threads < 2
         t = @async while server.status > 2
             con = UDPConnection(data, server, handlers)
@@ -255,50 +258,56 @@ function start!(st::Type{ServerTemplate{:UDP}}, mod::Module; ip::IP4 = "127.0.0.
             end
         end
     else
+        iocon::UDPIOConnection = UDPIOConnection(con.ip, con.packet, con.handlers, con.data, "")
         add_workers!(pm, router_threads)
         pids::Vector{Int64} = [work.pid for work in filter(w -> typeof(w) != Worker{ParametricProcesses.Async}, pm.workers)]
         Main.eval(Meta.parse("""using ToolipsUDP: @everywhere; @everywhere begin
             using ToolipsUDP
             using $mod
         end"""))
-        put!(pm, pids, Main.mod)
-        put!(pm, pids, data)
-        selected::Int64 = 1
-        put!(pm, pids, server)
-        put!(pm, pids, handlers)
-        put!(pm, pids, con)
+        put!(pm, pids, loaded)
+        put!(pm, pids, iocon)
+        selected::Int64 = minimum(threads) - 1
+        job = new_job() do
+            try
+                [route!(iocon, UDPExtension(ext.parameters[1])) for ext in loaded]
+            catch e
+                throw(e)
+            end
+            try
+                iocon.handlers[1].f(iocon)
+            catch e
+                throw(e)
+            end
+        end
         while server.status > 2
-            @sync selected += 1
+            selected += 1
+            con = UDPConnection(data, server, handlers)
             if selected > router_threads
-                @sync selected = minimum(threads)
+                selected = minimum(threads)
             end
-            if selected < 2
-                try
-                    [route!(con, UDPExtension(ext.parameters[1])) for ext in loaded]
-                catch e
-                    throw(e)
-                end
-                try
-                    handlers[1].f(con)
-                catch e
-                    throw(e)
-                end
-                return
+            if selected > 1
+                assign!(pm, selected, job)
+                waitfor(pm, selected)
+                respond!(con, iocon.stream)
+                iocon.stream = ""
+                continue
             end
-            job = new_job() do
-                try
-                    [route!(con, UDPExtension(ext.parameters[1])) for ext in loaded]
-                catch e
-                    throw(e)
-                end
-                try
-                    con.handlers[1].f(con)
-                catch e
-                    throw(e)
-                end
-                return
+            stop = nothing
+            try
+                stop = [route!(con, ext) for ext in loaded]
+            catch e
+                throw(e)
             end
-            assign!(pm, selected, job)
+            f = findfirst(x -> x == false, stop)
+            if ~(isnothing(f))
+                continue
+            end
+            try
+                handlers[1].f(con)
+            catch e
+                throw(e)
+            end  
         end
     end
     w::Worker{Async} = Worker{Async}("$mod server", rand(1000:3000))
@@ -319,10 +328,12 @@ function new_app(st::Type{ServerTemplate{:UDP}}, name::String)
         using ToolipsUDP
 
         default_handler = handler() do c::UDPConnection
+            println("served a client")
             respond!(c, "hello world!")
         end
 
-        export default_handler, start!
+        export default_handler, start!, UDP
+        # using $name; start!(UDP, name, ip = "127.0.0.1":2000)
         end
         """)
     end
@@ -345,9 +356,16 @@ function send(c::UDPConnection, data::String, to::IP4 = "127.0.0.1":2000)
     send(sock, parse(IPv4, to.ip), to.port, data)
 end
 
+function send(c::UDPIOConnection, data::String)
+    sock = c.server
+    c.stream = c.stream * data
+end
+
 
 respond!(c::UDPConnection, data::String) = send(c, data, c.ip)
 
+
+respond!(c::UDPIOConnection, data::String) = c.stream = c.stream * data
 
 function send(c::Module, data::String, to::IP4 = "127.0.0.1":2000)
     sock = c.server
@@ -373,6 +391,6 @@ function route!(c::UDPConnection, mh::MultiHandler)
     end
 end
 
-export send, UDPConnection, respond!, start!, IP4, write!, handler, UDPExtension, set_handler!, UDP
+export send, UDPConnection, respond!, start!, IP4, write!, handler, UDPExtension, set_handler!, UDP, AbstractUDPConnection
 
 end # module ToolipsUDP
