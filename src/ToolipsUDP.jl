@@ -10,7 +10,7 @@ Rather than `Routes` being used via `route`, the `UDPHandler` is used via `handl
 module NewServer
 using ToolipsUDP
 
-new_handler = handler("new") do c::UDPConnection
+new_handler = handler() do c::UDPConnection
     respond!(c, "hello")
 end
 
@@ -31,12 +31,86 @@ import Base: show, read, getindex, setindex!, push!
 
 const UDP = ServerTemplate{:UDP}
 
+"""
+### abstract type AbstractUDPHandler <: AbstractRoute
+An `AbstractUDPHandler` is a structure containing a `Function` 
+that responds to a UDP request. `ToolipsUDP` provides two types of 
+UDP handlers; the `UDPHandler` and the `NamedHandler`. The only consistency 
+is having an `AbstractUDPHandler.f` `Function` that takes an 
+`AbstractUDPConnection`.
+"""
 abstract type AbstractUDPHandler <: AbstractRoute end
 
+"""
+```julia
+UDPHandler <: AbstractUDPHandler
+```
+- f**::Function*
+
+A UDPHandler is the most basic form of handler for UDP. 
+    These handlers are exported from your server and 
+    will handle incoming requests from clients. A 
+    `UDPHandler` is created by calling the `handler` 
+    function without providing any arguments. Providing a 
+        `String` will create a `NamedHandler`.
+
+- See also: `handler`, `UDPConnection`, `start!`, `ToolipsUDP`, `respond!`, `send`, `NamedHandler`
+```julia
+UDPHandler(f::Function)
+```
+---
+```example
+module NewUDPServer
+using ToolipsUDP
+
+# creating a handler
+                               # v make `AbstractUDPConnection` for multi-threading
+main_handler = handler() do c::UDPConnection
+   user_ip4 = get_ip4(c) # <- IP + port as `IP4`
+   user_ip = get_ip(c) # <- just IP as `String`
+   user_packet::String = c.packet # <- sent packet
+   respond!(c, "thanks for connecting") # <- `respond!` and `send` used to communicate.
+end
+
+# exports
+
+export start!, UDP, main_handler
+end
+#                      vvvvvv make sure to provide `UDP`
+using NewUDPServer; start!(UDP, NewUDPServer)
+```
+"""
 struct UDPHandler <: AbstractUDPHandler
     f::Function
 end
 
+"""
+```julia
+NamedHandler <: AbstractUDPHandler
+```
+- f**::Function*
+- name**::String**
+
+A `NamedHandler` is a named version of a `UDPHandler`. This naming allows 
+for handlers to be set. This is primarily intended to be 
+used with the `MultiHandler` extension, where we are able to 
+set the current handler for a future incoming request.
+
+- See also: `handler`, `UDPConnection`, `start!`, `ToolipsUDP`, `respond!`, `send`, `UDPHandler`
+```julia
+NamedHandler(f::Function, name::String)
+```
+---
+```example
+module NewUDPServer
+using ToolipsUDP
+
+
+
+export start!, UDP, main_handler
+end
+```
+"""
 struct NamedHandler <: AbstractUDPHandler
     f::Function
     name::String
