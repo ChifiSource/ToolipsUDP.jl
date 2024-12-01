@@ -14,8 +14,10 @@ new_handler = handler() do c::UDPConnection
     respond!(c, "hello")
 end
 
-export new_handler, start!
+export new_handler, start!, UDP
 end
+
+using NewServer; start!(UDP, NewServer)
 ```
 The API provides the obvious `get_ip` binding, as well as `send` and `respond!` for convenient 
 peer-to-server communication.
@@ -172,8 +174,9 @@ handler(f::Function, name::String) = NamedHandler(f, name)
 
 """
 ### abstract type AbstractUDPConnection <: Toolips.AbstractConnection
-
-- See also: 
+The `AbstractUDPConnection` fills the same role as the `Toolips.AbstractConnection` -- 
+being a mutable type that is passed into a response handler.
+- See also: `UDPConnection`, `UDPIOConnection`, `start!`
 ##### consistencies
 - `ip`**::String**
 - `port`**::Int64**
@@ -298,7 +301,15 @@ just for `UDPExtensions`. Like in `Toolips`, this function can be extended to ad
     a handler on each " route" of a client.
 ```julia
 # the route! dispatch for `MultiHandler`:
-
+function route!(c::UDPConnection, mh::MultiHandler)
+    ip = get_ip(c)
+    if ip in keys(mh.clients)
+        handler_name::String = mh.clients[ip]
+        f = findfirst(r -> if typeof(r) == NamedHandler r.name == handler_name else false end, c.handlers)
+        c.handlers[f].f(c)
+        false
+    end
+end
 ```
 """
 function route!(c::UDPConnection, ext::AbstractUDPExtension)
@@ -313,18 +324,29 @@ This dispatch fills the same role `on_start` normally fills in base `Toolips`,
 just for `UDPExtensions`. Like in `Toolips`, this function can be extended to add 
     server functionality. The new `Function` will dictate what happens when a `UDP` server 
     starts with a certain extension.
+```julia
+import ToolipsUDP: on_start
+mutable struct MyExtension
+    name_pwd::Pair{Int64, String}
+end
+
+function on_start(data::Dict{Symbol, Any}, ext::AbstractUDPExtension)
+    push!(data, :name => ext.name_pwd[1], :pwd => ext.name_pwd[2])
+end
+```
 """
 function on_start(data::Dict{Symbol, Any}, ext::AbstractUDPExtension)
-
+    
 end
 
 """
 ```julia
-ToolipsUDP.start!(st::Type{ServerTemplate{:UDP}}, mod::Module, ip::IP4 = Toolips.ip4_cli(Main.ARGS); threads::Int64 = 1)
+start!(st::Type{ServerTemplate{:UDP}}, mod::Module; ip::IP4 = "127.0.0.1":2000, threads::UnitRange{Int64} = 1:1)
 ```
 Starts a Server Module as a `ToolipsUDPServer`. `UDP` is provided as a constant from `ToolipsUDP` and is provided to start 
 the server as a UDPServer. If you were to call `start!` without this argument, you'd be trying to start a `Toolips` 
-web-server -- this will result in a server with only a `default_404` route.
+web-server -- this will result in a server with only a `default_404` route. `threads` determines how many threads to 
+serve the `handler`(s) with.
 ```julia
 module MyServer
 using ToolipsUDP
@@ -339,6 +361,8 @@ end
 
 using ToolipsUDP; start!(UDP, MyServer)
 ```
+**NOTE** that with multi-threading, you will want to annotate your handler's `Connection` as an 
+`AbstractUDPConnection`, in order to facilitate the `IOConnection` that can actually be sent across threads.
 """
 function start!(st::Type{ServerTemplate{:UDP}}, mod::Module; ip::IP4 = "127.0.0.1":2000, threads::UnitRange{Int64} = 1:1)
     data::Dict{Symbol, Any} = Dict{Symbol, Any}()
@@ -495,37 +519,99 @@ function new_app(st::Type{ServerTemplate{:UDP}}, name::String)
     return
 end
 
-function send(data::String, to::IP4 = "127.0.0.1":2000; from::Int64 = to.port - 5)
+get_ip(c::UDPConnection) = c.ip.ip::String
+
+"""
+```julia
+get_ip4(c::UDPConnection) -> ::Toolips.IP4
+```
+A `get_ip` equivalent for the `Toolips.IP4` data-type, which holds both the 
+    port and the IP address. This is provided exclusively by `ToolipsUDP` because the port 
+with a `Toolips` HTTP server in production will always be 80 unless an absurdly specific case.
+```julia
+
+```
+"""
+get_ip4(c::UDPConnection) = c.ip::IP4
+
+"""
+```julia
+ToolipsUDP.send -> ::Nothing/::Sockets.UDPSocket
+```
+`send` is used to send data from and to a variety of sources using a variety of arguments.
+"""
+function send end
+
+"""
+```julia
+send(data::String, to::IP4 = "127.0.0.1":2000; from::Int64 = to.port - 5, keep_open::Bool = false) -> ::Nothing/::Sockets.UDPSocket
+```
+Sends `data` to the `IP4` `to` from the port `from` on the current computer. In this case, we will 
+quickly create a client server, send the packet, and then cancel the server. Note that that after sending 
+this server will not receive responses, as it is closed. This changes with the `keep_open` argument.
+```julia
+
+```
+"""
+function send(data::String, to::IP4 = "127.0.0.1":2000; from::Int64 = to.port - 5, keep_open::Bool = false)
     sock = UDPSocket()
     bind(sock, ip"127.0.0.1", from)
     send(sock, parse(IPv4, to.ip), to.port, data)
+    if keep_open
+        return(sock)
+    end
     close(sock)
 end
 
-get_ip(c::UDPConnection) = c.ip.ip::String
 
-get_ip4(c::UDPConnection) = c.ip::IP4
+"""
+```julia
+send(c::UDPConnection, data::String, to::IP4 = "127.0.0.1":2000) -> ::Nothing
+```
+Sends `data` from a `UDPConnection` to any other endpoint. This is useful for 
+data we want to send inside of a `UDPHandler`. To respond to the current client, we could provide 
+the `c.ip` as `to`, but we could also use `respond!` to simplify the process.
+Note that this can only happen from the base thread, as well. In the future, we might have 
+a way to translate this data but this is not currently supported. Please try to understand that 
+every addition to multi-threading data-wise is not only a head-ache, but also stressful for 
+others who might not use it -- as we are replicating it on multiple threads.
+```julia
 
+```
+"""
 function send(c::UDPConnection, data::String, to::IP4 = "127.0.0.1":2000)
     sock = c.server
     send(sock, parse(IPv4, to.ip), to.port, data)
 end
 
-function send(c::UDPIOConnection, data::String)
-    sock = c.server
-    c.stream = c.stream * data
-end
+"""
+```julia
+send(c::Module, data::String, to::IP4 = "127.0.0.1":2000) -> ::Nothing
+```
+Sends a packet of data to `to` using an actively running server `Module`.
+```julia
 
-
-respond!(c::UDPConnection, data::String) = send(c, data, c.ip)
-
-
-respond!(c::UDPIOConnection, data::String) = c.stream = c.stream * data
-
+```
+"""
 function send(c::Module, data::String, to::IP4 = "127.0.0.1":2000)
     sock = c.server
     send(sock, parse(IPv4, to.ip), to.port, data)
 end
+
+"""
+```julia
+respond(c::AbstractUDPConnection, data::String) -> ::Nothing
+```
+The quintessential way to return data to a client; `respond!` takes the place of 
+`write!` in conventional `Toolips`, allowing us to write data directly onto an incoming 
+packet.
+```julia
+
+```
+"""
+respond!(c::UDPConnection, data::String) = send(c, data, c.ip)
+
+respond!(c::UDPIOConnection, data::String) = c.stream = c.stream * data
 
 mutable struct MultiHandler <: AbstractUDPExtension
     clients::Dict{String, String}
