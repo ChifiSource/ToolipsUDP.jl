@@ -1,48 +1,64 @@
 <div align="center"><img src="https://github.com/ChifiSource/image_dump/raw/main/toolips/toolipsudp.png"></img></div>
 
-`ToolipsUDP` provides high-level [toolips](https://github.com/ChifiSource/Toolips.jl)-style functionality to UDP networking projects. This functionality is facilitated via the `UDPServer` and `UDPConnection` types. 
+`ToolipsUDP` provides high-level [toolips](https://github.com/ChifiSource/Toolips.jl)-style functionality to UDP networking projects.
 
-###### creating a UDP server
-Whereas a `Toolips` `WebServer` typically comes with a router, the `UDPServer` takes a `Function` directly and provides this function with a `UDPConnection`. To create a UDP server, we provide a connection handler function. Use the UDPServer constructor with a `do` block to specify the behavior when a connection is received. Here's an example:
+###### UDP servers
+The intention with `ToolipsUDP` is to replicate the typical `Toolips` web-development format in `UDP`. The server system closely mirrors that of `Toolips` itself:
 ```julia
-using ToolipsUDP
+# hello world in toolips (TCP HTTP Server)
+module HelloWorld
+using Toolips
 
-# Define a connection handler function
-function my_connection_handler(c::UDPConnection)
-    println("Received packet: ", c.packet)
-    println("From IP: ", c.ip)
-    println("On port: ", c.port)
+home = route("/") do c::Connection
+    write!(c, "hello world!")
 end
 
-# Create and start a UDPServer with the connection handler using do block
-UDPServer("127.0.0.1", 2000) do c::UDPConnection
-    my_connection_handler(c)
-end
-```
-A `UDPServer` may also be constructed without a handler `Function`, and this might be ideal for sending data.
-###### sending data
-ToolipsUDP provides convenient functions for sending data to UDP servers. Packets may be sent from
-- A `UDPServer`
-- A `UDPConnection`
-- or just sent once with a quick socket binding.
+export start!, home
+end # module
 
-The dispatches for these are:
-- `send(c::UDPServer, data::String, to::String = "127.0.0.1", port::Int64 = 2000)`
-- `send(c::UDPConnection, data::String, to::String = "127.0.0.1", port::Int64 = 2000)`
-- and `send(data::String, to::String = "127.0.0.1", port::Int64 = 2000; from::Int64 = port - 5)` respectively.
+using HelloWorld: start!(HelloWorld)
 
-
-###### extending server functionality
-Like toolips, `ToolipsUDP` provides an extensible server infastructure which allows for the addition of new, reproducible features to a server. In `ToolipsUDP`, these extensions are facilitated using multiple dispatch, the `UDPExtension` type, and the functions `serve` and `onstart`. To add an extension, first import one of these functions. For this example, we will import *both*.
-```julia
-import ToolipsUDP: serve, onstart
-```
-The `serve` function is called on our `UDPConnection` each time we recieve an incoming packet. The `onstart` function is called on our `Connection` data on start.
-```julia
+# hello world in toolipsUDP (UDP Server)
+module HelloUDP
 using ToolipsUDP
-import ToolipsUDP: serve, onstart
 
-onstart(data::Dict{Symbol, Any}, ue::UDPExtension{:loaddata}) = push!(data, :mydata => "hello world!")
+home = handler() do c::UDPConnection
+    respond!(c, "hello world!")
+end
+end # module
 
-serve(c::UDPConnection, ue::UDPExtension{:printdata}) = println(c[:mydata])
+
+using HelloUDP; start!(UDP, HelloUDP)
+# toolips 0.3.4 +:
+using HelloUDP; start!(UDP, HelloUDP)
 ```
+**note that we will provide `UDP` to both `start!` and `new_app`**
+The `Toolips.Route` is replaced with the `ToolipsUDP.handler`. To write a `handler`, we use the `handler` function as seen above. We can also provide a `String` to this function to make a `NamedHandler`, which is used by some extensions. The `handler`(s) are stored in the `AbstractUDPConnection.handlers` field. There is also the `packet` and an `ip` field. 
+```julia
+?UDPConnection
+```
+### abstract type AbstractUDPConnection <: Toolips.AbstractConnection
+ 
+##### consistencies
+- `ip`**::String**
+- `port`**::Int64**
+- `packet`**::String**
+- `data`**::Dict{Symbol, Any}**
+
+`ToolipsUDP` is also a bit more simplified; there is no 'default header' to process, and the only data we can receive is the packet itself and the IP of the client, so things are a bit more simplified. 
+#### getters
+The following functions are used to retrieve data from an `AstractUDPConnection`.
+- `Toolips.get_ip(c::UDPConnection)`
+- `ToolipsUDP.get_ip4(c::UDPConnection)`
+
+For accessing the data in the incoming packet, we simply utilize the `c.packet` field.
+#### responding
+We are able to respond, as well as send data, using the `send` and `respond` functions.
+- `respond!(c::UDPConnection, data::String)` is the most essential, as it instantly sends `data` back to the client.
+- `send(data::String, to::IP4 = "127.0.0.1":2000; from::Int64 = to.port - 5)` For sending a packet through a 'cursor', useful to test an initial response via a temporary server on the port in `from`, but note that it will not get a response as the server is immediately stopped after sending.
+- `send(c::UDPConnection, data::String, to::IP4 = "127.0.0.1":2000)` allows us to send data to any server, regardless as to whether or not it has sent to us or not or it is the current client, from a `handler`. A use-case for this would be multi-user chat, for example, where we want to call a `Function` on a certain client and not another. We store the IP of all clients alongside their names, when a client elects to send a user to the name we retrieve the associated IP and send the data.
+- `send(c::Module, data::String, to::IP4 = "127.0.0.1":2000)` is similar to sending data from a `handler`, but it allows us to send data from the REPL using the server.
+#### extensions
+
+#### multi-threading
+
