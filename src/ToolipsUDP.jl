@@ -24,7 +24,7 @@ peer-to-server communication.
 """
 module ToolipsUDP
 using Toolips.Sockets
-import Toolips: IP4, AbstractConnection, get_ip, write!, ip4_cli, ProcessManager, assign!, AbstractIOConnection, Crayon
+import Toolips: IP4, AbstractConnection, get_ip, write!, ip4_cli, ProcessManager, assign!, AbstractIOConnection, Crayon, kill!
 import Toolips: route!, on_start, AbstractExtension, AbstractRoute, respond!, start!, ServerTemplate, new_app, @everywhere
 using Toolips.ParametricProcesses
 using Toolips.Pkg: activate, add, generate
@@ -399,9 +399,18 @@ function start!(st::Type{ServerTemplate{:UDP}}, mod::Module; ip::IP4 = "127.0.0.
     filter!(ext -> typeof(ext) in allparams, loaded)
  #   con::UDPConnection = UDPConnection(data, server, handlers)
     pm::ProcessManager = ProcessManager()
+    push!(data, :procs => pm)
+    GARBAGE = 0
     t = nothing
     if router_threads < 2 && async
         t = @async while server.status > 2
+            GARBAGE += 1
+            if GARBAGE > 150
+                GC.gc()
+            elseif GARBAGE > 500
+                GC.gc(true)
+                GARBAGE = 0
+            end
             con = UDPConnection(data, server, handlers)
             stop = [route!(con, ext) for ext in loaded]
             f = findfirst(x -> x == false, stop)
@@ -429,7 +438,7 @@ function start!(st::Type{ServerTemplate{:UDP}}, mod::Module; ip::IP4 = "127.0.0.
             end
         end
     else
-        iocon::UDPIOConnection = UDPIOConnection(con.ip, con.packet, con.handlers, con.data, "")
+        iocon::UDPIOConnection = UDPIOConnection("":0, "", Vector{UDPHandler}(), data, "")
         add_workers!(pm, router_threads)
         pids::Vector{Int64} = [work.pid for work in filter(w -> typeof(w) != Worker{ParametricProcesses.Async}, pm.workers)]
         Main.eval(Meta.parse("""using ToolipsUDP: @everywhere; @everywhere begin
@@ -457,6 +466,13 @@ function start!(st::Type{ServerTemplate{:UDP}}, mod::Module; ip::IP4 = "127.0.0.
             end
         end
         @async while server.status > 2
+            GARBAGE += 1
+            if GARBAGE > 150
+                GC.gc()
+            elseif GARBAGE > 500
+                GC.gc(true)
+                GARBAGE = 0
+            end
             selected += 1
             con = UDPConnection(data, server, handlers)
             if selected > router_threads
@@ -655,5 +671,5 @@ end
 
 
 export send, UDPConnection, respond!, start!, IP4, write!, handler, UDPExtension, set_handler!, UDP, AbstractUDPConnection
-export remove_handler!, get_ip4, get_ip
+export remove_handler!, get_ip4, get_ip, kill!
 end # module ToolipsUDP
