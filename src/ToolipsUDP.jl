@@ -341,7 +341,8 @@ end
 
 """
 ```julia
-start!(st::Type{ServerTemplate{:UDP}}, mod::Module; ip::IP4 = "127.0.0.1":2000, threads::UnitRange{Int64} = 1:1)
+start!(st::Type{ServerTemplate{:UDP}}, mod::Module; ip::IP4 = "127.0.0.1":2000, threads::UnitRange{Int64} = 1:1, 
+    async::Bool = true)
 ```
 Starts a Server Module as a `ToolipsUDPServer`. `UDP` is provided as a constant from `ToolipsUDP` and is provided to start 
 the server as a UDPServer. If you were to call `start!` without this argument, you'd be trying to start a `Toolips` 
@@ -626,7 +627,7 @@ end
 
 """
 ```julia
-respond(c::AbstractUDPConnection, data::String) -> ::Nothing
+respond!(c::AbstractUDPConnection, data::String) -> ::Nothing
 ```
 The quintessential way to return data to a client; `respond!` takes the place of 
 `write!` in conventional `Toolips`, allowing us to write data directly onto an incoming 
@@ -639,6 +640,30 @@ respond!(c::UDPConnection, data::String) = send(c, data, c.ip)
 
 respond!(c::UDPIOConnection, data::String) = c.stream = c.stream * data
 
+"""
+```julia
+MultiHandler <: AbstractUDPExtension
+```
+- `main_handler`**::UDPHandler**
+- `clients`**::Dict{IP4, String}**
+
+The `MultiHandler` is a type created to route a client to multiple 
+named handlers using `set_handler!`. We provide our `MultiHandler` 
+with a main handler. This main handler acts as the first response, 
+subsequent responses can then be done through `NamedHandler`s.
+
+- See also: `set_handler!`, `NamedHandler`, `remove_handler!`
+```julia
+MultiHandler(hand::UDPHandler)
+MultiHandler(f::Function)
+```
+```example
+module NewServer
+using ToolipsUDP
+
+end
+```
+"""
 mutable struct MultiHandler <: AbstractUDPExtension
     main_handler::UDPHandler
     clients::Dict{IP4, String}
@@ -646,6 +671,22 @@ mutable struct MultiHandler <: AbstractUDPExtension
     MultiHandler(f::Function) = new(UDPHandler(f), Dict{IP4, String}())
 end
 
+"""
+```julia
+set_handler!(c::UDPConnection, args ...) -> ::Nothing
+```
+Sets a `NamedHandler` for a `MultiHandler` for the client 
+    currently being served by `c`.
+```julia
+# for current client
+set_handler!(c::UDPConnection, name::String)
+# for other clients
+set_handler!(c::UDPConnection, ip4::IP4, name::String)
+```
+```example
+
+```
+"""
 function set_handler!(c::UDPConnection, name::String)
     c[:MultiHandler].clients[get_ip4(c)] = name
 end
@@ -654,7 +695,23 @@ function set_handler!(c::UDPConnection, ip4::IP4, name::String)
     c[:MultiHandler].clients[ip4] = name
 end
 
-remove_handler!(c::UDPConnection, name::String) = delete!(c[:MultiHandler].clients, get_ip4(c))
+"""
+```julia
+remove_handler!(c::UDPConnection) -> ::Nothing
+```
+Removes a currently selected `NamedHandler`, returning the client 
+to the `main_handler` provided to the `MultiHandler`.
+```julia
+# for current client
+set_handler!(c::UDPConnection, name::String)
+# for other clients
+set_handler!(c::UDPConnection, ip4::IP4, name::String)
+```
+```example
+
+```
+"""
+remove_handler!(c::UDPConnection) = delete!(c[:MultiHandler].clients, get_ip4(c))
 
 function route!(c::UDPConnection, mh::MultiHandler)
     ip = get_ip4(c)
