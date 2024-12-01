@@ -294,7 +294,12 @@ route!(c::UDPConnection, ext::AbstractUDPExtension)
 ```
 This dispatch fills the same role `route!` normally fills in base `Toolips`, 
 just for `UDPExtensions`. Like in `Toolips`, this function can be extended to add 
-    server functionality.
+    server functionality. The `Function`is meant to be extended in order to change the functionality of 
+    a handler on each " route" of a client.
+```julia
+# the route! dispatch for `MultiHandler`:
+
+```
 """
 function route!(c::UDPConnection, ext::AbstractUDPExtension)
 
@@ -306,7 +311,8 @@ on_start(data::Dict{Symbol, Any}, ext::AbstractUDPExtension)
 ```
 This dispatch fills the same role `on_start` normally fills in base `Toolips`, 
 just for `UDPExtensions`. Like in `Toolips`, this function can be extended to add 
-    server functionality.
+    server functionality. The new `Function` will dictate what happens when a `UDP` server 
+    starts with a certain extension.
 """
 function on_start(data::Dict{Symbol, Any}, ext::AbstractUDPExtension)
 
@@ -316,7 +322,9 @@ end
 ```julia
 ToolipsUDP.start!(st::Type{ServerTemplate{:UDP}}, mod::Module, ip::IP4 = Toolips.ip4_cli(Main.ARGS); threads::Int64 = 1)
 ```
-Starts a Server Module as a `ToolipsUDPServer`. `UDP` is provided as a constant from `ToolipsUDP`.
+Starts a Server Module as a `ToolipsUDPServer`. `UDP` is provided as a constant from `ToolipsUDP` and is provided to start 
+the server as a UDPServer. If you were to call `start!` without this argument, you'd be trying to start a `Toolips` 
+web-server -- this will result in a server with only a `default_404` route.
 ```julia
 module MyServer
 using ToolipsUDP
@@ -451,7 +459,20 @@ function start!(st::Type{ServerTemplate{:UDP}}, mod::Module; ip::IP4 = "127.0.0.
     pm::ProcessManager
 end
 
+"""
+```julia
+new_app(st::Type{ServerTemplate{:UDP}}, name::String) -> ::Nothing
+```
+This method creates a new `UDP` app.
+```julia
+using ToolipsUDP
+ToolipsUDP.new_app(UDP, "SampleApp")
 
+# Toolips 0.3.4+ we can provide symbols instead:
+using Toolips; using ToolipsUDP
+Toolips.new_app(:UDP, "SampleApp")
+```
+"""
 function new_app(st::Type{ServerTemplate{:UDP}}, name::String)
     generate(name)
     activate(name)
