@@ -47,7 +47,13 @@ send("127.0.0.1":7009, "hello, my name is emmy")
 sock = send("127.0.0.1":7009, "hello, my name is emmy", keep_open = true)
 close(sock)
 ```
-###### UDP servers
+###### map
+- [get started](#get-started)
+- [getters](#getters)
+- [responding](#responding)
+- [extensions](#extensions)
+- [multi-threading](#multi-threading)
+###### get started
 The intention with `ToolipsUDP` is to replicate the typical `Toolips` web-development format in `UDP`. The server system closely mirrors that of `Toolips` itself:
 ```julia
 # hello world in toolips (TCP HTTP Server)
@@ -83,7 +89,9 @@ The `Toolips.Route` is replaced with the `ToolipsUDP.handler`. To write a `handl
 ?UDPConnection
 ```
 ### abstract type AbstractUDPConnection <: Toolips.AbstractConnection
- 
+ The `AbstractUDPConnection` fills the same role as the `Toolips.AbstractConnection` -- 
+being a mutable type that is passed into a response handler.
+- See also: `UDPConnection`, `UDPIOConnection`, `start!`
 ##### consistencies
 - `ip`**::String**
 - `port`**::Int64**
@@ -104,6 +112,35 @@ We are able to respond, as well as send data, using the `send` and `respond` fun
 - `send(c::UDPConnection, data::String, to::IP4 = "127.0.0.1":2000)` allows us to send data to any server, regardless as to whether or not it has sent to us or not or it is the current client, from a `handler`. A use-case for this would be multi-user chat, for example, where we want to call a `Function` on a certain client and not another. We store the IP of all clients alongside their names, when a client elects to send a user to the name we retrieve the associated IP and send the data.
 - `send(c::Module, data::String, to::IP4 = "127.0.0.1":2000)` is similar to sending data from a `handler`, but it allows us to send data from the REPL using the server.
 #### extensions
-
+UDP extensions are handled nearly identically to regular `Toolips` extensions. First, we create a new type that is a `<:` of `AbstractUDPExtension`.
+```julia
+```
+Next, this extension may be bound to `route!` and `on_start`:
+```julia
+```
 #### multi-threading
+Multi-threading is done by simply adding a **range** of threads to utilize. In this range, `1` represents your base thread -- anything about `1` will be served on an additional thread. Anything below `1` provided as the `minimum` will perform an extra response on the base thread. In other words, `0:3` would serve twice on the base therad, `0` and `1`, before serving `2` and `3` on workers and returning to `0` and the base thread.
+```julia
+```
+The `ProcessManager` is also, like `Toolips`, the return of `start!`. Considering this, we could feasibly add workers and distribute our tasks -- though `threads` and `router_threads` aren't *both* available as they are in `Toolips`. 
+While this aspect of multi-threading is relatively straightforward, not all servers will be compatible with this form of multi-threading. For starters, your handlers will need to be annotated as `AbstractUDPConnection`, rather than a regular `UDPConnection` -- as a different `Connection` type is used when not on the base therad.
+### contributing
+You can help out with this project by...
+- using `ToolipsUDP` in your own project 🌷
+- creating extensions for the toolips ecosystem 💐
+- forking this project [contributing guidelines](#guidelines)
+- submitting issues
+- contributing to other [chifi](https://github.com/ChifiSource) projects
+- supporting chifi creators
+
+I thank you for all of your help with our project, or just for considering contributing! I want to stress further that we are not picky -- allowing us all to express ourselves in different ways is part of the key methodology behind the entire [chifi](https://github.com/ChifiSource) ecosystem. Feel free to contribute, we would **love** to see your art! Issues marked with `good first issue` might be a great place to start!
+#### guidelines
+We are not super strict, but making sure of these few things will be helpful for maintainers!
+1. You have replicated the issue on **Unstable**
+2. The issue does not currently exist... or does not have a planned implementation different to your own. In these cases, please collaborate on the issue, express your idea and we will select the best choice.
+3. **Pull Request TO UNSTABLE**
+4. Be **specific** about your issue -- if you are experiencing multiple issues, open multiple issues. It is better to have a high quantity of issues that specifically describe things than a low quantity of issues that describe multiple things.
+5. If you have a new issue, **open a new issue**. It is not best to comment your issue under an unrelated issue; even a case where you are experiencing that issue, if you want to mention **another issue**, open a **new issue**.
+6. Questions are fine, but preferably **not** questions answered inside of this `README`.
+
 
