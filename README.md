@@ -4,6 +4,7 @@
 - Follows `Toolips` `0.3` conventions.
 - Servers are modules.
 - Extensible server framework.
+- Streamlined UDP API.
 ```julia
 using Pkg; Pkg.add("ToolipsUDP")
 ```
