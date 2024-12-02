@@ -3,9 +3,8 @@ Created in June, 2022 by
 [chifi - an open source software dynasty.](https://github.com/orgs/ChifiSource)
 by team
 ### ToolipsUDP
-This module provides a high-level `Toolips` interface for UDP servers. As with regular `Toolips` 
-TCP web-severs, servers are modules and started with `start!` -- distinctly, `ToolipsUDP.start!`. 
-Rather than `Routes` being used via `route`, the `UDPHandler` is used via `handler`.
+`ToolipsUDP` brings `Toolips` web-development conventions to the format of UDP. This package allows for 
+the creation of extensible and versatile UDP servers for Julia.
 ```julia
 module NewServer
 using ToolipsUDP
@@ -21,6 +20,29 @@ using NewServer; start!(UDP, NewServer)
 ```
 The API provides the obvious `get_ip` binding, as well as `send` and `respond!` for convenient 
 peer-to-server communication.
+##### provides
+- `UDP` (`ServerTemplate{:UDP}`)
+- `AbstractUDPHandler`
+- `UDPHandler`
+- `NamedHandler`
+- `handler`
+- `AbstractUDPConnection`
+- `UDPConnection`
+- `UDPIOConnection`
+- `AbstractUDPExtension`
+- `UDPExtension{T <: Any}`
+- `Toolips.route!(c::UDPConnection, ext::AbstractUDPExtension)`
+- `Toolips.on_start(data::Dict{Symbol, Any}, ext::AbstractUDPExtension)`
+- `Toolips.start!(st::Type{ServerTemplate{:UDP}}, mod::Module; ip::IP4 = "127.0.0.1":2000, threads::UnitRange{Int64} = 1:1, async::Bool = true)`
+- `Toolips.new_app(st::Type{ServerTemplate{:UDP}}, name::String)`
+- `Toolips.get_ip(c::UDPConnection)`
+- `get_ip4`
+- `send`
+- `respond!`
+- `MultiHandler`
+- `set_handler!`
+- `remove_handler!`
+- `Toolips.route!(c::UDPConnection, mh::MultiHandler)`
 """
 module ToolipsUDP
 using Toolips.Sockets
@@ -175,7 +197,9 @@ handler(f::Function, name::String) = NamedHandler(f, name)
 """
 ### abstract type AbstractUDPConnection <: Toolips.AbstractConnection
 The `AbstractUDPConnection` fills the same role as the `Toolips.AbstractConnection` -- 
-being a mutable type that is passed into a response handler.
+being a mutable type that is passed into a response handler. The `Connection` is then 
+used alongside `respond!`, `send`, and its `packet` field to create and send data to handle the 
+response.
 - See also: `UDPConnection`, `UDPIOConnection`, `start!`
 ##### consistencies
 - `ip`**::String**
@@ -187,7 +211,7 @@ abstract type AbstractUDPConnection <: AbstractConnection end
 
 """
 ```julia
-UDPConnection <: Toolips.AbstractUDPConnection
+UDPConnection <: AbstractUDPConnection
 ```
 - ip**::String**
 - port**::Int64**
@@ -195,7 +219,9 @@ UDPConnection <: Toolips.AbstractUDPConnection
 - data**::Dict{Symbol, Any}**
 - server**::Sockets.UDPSocket**
 ---
-
+The `UDPConnection` is passed into your `UDPHandler`'s function. This is essentially the in and out stream 
+in `ToolipsUDP`. We respond using `send` and `respond!` and we get the incoming packet by calling the 
+`c.packet` field.
 ##### constructors
 - `UDPConnection(data::Dict{Symbol, Any}, server::Sockets.UDPSocket)`
 """
@@ -222,9 +248,11 @@ UDPIOConnection <: Toolips.AbstractUDPConnection
 - port**::Int64**
 - packet**::String**
 - data**::Dict{Symbol, Any}**
-- server**::Sockets.UDPSocket**
+- stream**::String**
 ---
-
+The `UDPIOConnection` is passed into your `UDPHandler`'s function in much the same way the `UDPConnection` is. 
+This is specifically, like the `IOConnection`, created for the context of multi-threading -- as the server's 
+streams cannot be written to by any other thread than the base. 
 ##### constructors
 - `UDPConnection(data::Dict{Symbol, Any}, server::Sockets.UDPSocket)`
 """
@@ -556,7 +584,10 @@ A `get_ip` equivalent for the `Toolips.IP4` data-type, which holds both the
     port and the IP address. This is provided exclusively by `ToolipsUDP` because the port 
 with a `Toolips` HTTP server in production will always be 80 unless an absurdly specific case.
 ```julia
-
+    default_handler = handler() do c::UDPConnection
+    println("served a client")
+    respond!(c, "hello world!")
+end
 ```
 """
 get_ip4(c::UDPConnection) = c.ip::IP4
@@ -577,7 +608,21 @@ Sends `data` to the `IP4` `to` from the port `from` on the current computer. In 
 quickly create a client server, send the packet, and then cancel the server. Note that that after sending 
 this server will not receive responses, as it is closed. This changes with the `keep_open` argument.
 ```julia
+module HelloWorld
+using ToolipsUDP
 
+main_handler = handler() do c::UDPConnection
+    println("new client sent us... " * c.packet)
+end
+
+export main_handler, UDP, start!
+end
+
+start!(UDP, HelloWorld, ip = "127.0.0.1":3001)
+
+using ToolipsUDP; send("hello friend", "127.0.0.1":3001)
+
+# output: new client sent us... hello friend
 ```
 """
 function send(data::String, to::IP4 = "127.0.0.1":2000; from::Int64 = to.port - 5, keep_open::Bool = false)
@@ -603,7 +648,23 @@ a way to translate this data but this is not currently supported. Please try to 
 every addition to multi-threading data-wise is not only a head-ache, but also stressful for 
 others who might not use it -- as we are replicating it on multiple threads.
 ```julia
+module UserTracker
+using ToolipsUDP
 
+users = Dict{IP4, String}()
+
+main_handler = handler() do c::UDPConnection
+    if contains(c.packet, " ") || c.packet == ""
+        respond!(c, "please provide a name to name yourself")
+        return
+    end
+    push!(users, get_ip4(c) => c.packet)
+    # everyone gets a join message.
+    [send(c, "\$(c.packet) joined", user_ip) for user_ip in keys(users)]
+end
+
+export main_handler, UDP, start!
+end
 ```
 """
 function send(c::UDPConnection, data::String, to::IP4 = "127.0.0.1":2000)
@@ -615,9 +676,22 @@ end
 ```julia
 send(c::Module, data::String, to::IP4 = "127.0.0.1":2000) -> ::Nothing
 ```
-Sends a packet of data to `to` using an actively running server `Module`.
+Sends a packet of data to `to` using an actively running server `Module`. This allows us to send data 
+from outside of the server.
 ```julia
+module HelloWorld
+using ToolipsUDP
 
+main_handler = handler() do c::UDPConnection
+    respond!(c, "hello server")
+end
+
+export main_handler, UDP, start!
+end
+
+start!(UDP, HelloWorld)
+
+using ToolipsUDP; send(HelloWorld, "hello to another server", "127.0.0.1":8000)
 ```
 """
 function send(c::Module, data::String, to::IP4 = "127.0.0.1":2000)
@@ -633,7 +707,21 @@ The quintessential way to return data to a client; `respond!` takes the place of
 `write!` in conventional `Toolips`, allowing us to write data directly onto an incoming 
 packet.
 ```julia
+module HelloWorld
+using ToolipsUDP
 
+
+main_handler = handler() do c::UDPConnection
+    respond!(c, "hello world!")
+end
+
+export main_handler
+end
+
+# a multi-handler can also be passed a `Function` to automatically make the main handler.
+multi_handler = MultiHandler() do c::AbstractUDPConnection
+
+end
 ```
 """
 respond!(c::UDPConnection, data::String) = send(c, data, c.ip)
@@ -657,9 +745,29 @@ subsequent responses can then be done through `NamedHandler`s.
 MultiHandler(hand::UDPHandler)
 MultiHandler(f::Function)
 ```
-```example
-module NewServer
+```julia
+module HandlerSample
 using ToolipsUDP
+
+
+main_handler = handler() do c::UDPConnection
+    println("response 1")
+    set_handler!(c, "second")
+end
+
+second_step = handler("second") do c::UDPConnection
+    println("response 2")
+    respond!(c, "you made it to the second screen!")
+end
+
+multi_handler = ToolipsUDP.MultiHandler(main_handler)
+
+export multi_handler, start!, UDP
+export main_handler, second_step
+end
+
+# a multi-handler can also be passed a `Function` to automatically make the main handler.
+multi_handler = MultiHandler() do c::AbstractUDPConnection
 
 end
 ```
@@ -684,7 +792,25 @@ set_handler!(c::UDPConnection, name::String)
 set_handler!(c::UDPConnection, ip4::IP4, name::String)
 ```
 ```example
+module HandlerSample
+using ToolipsUDP
 
+
+main_handler = handler() do c::UDPConnection
+    println("response 1")
+    set_handler!(c, "second")
+end
+
+second_step = handler("second") do c::UDPConnection
+    println("response 2")
+    respond!(c, "you made it to the second screen!")
+end
+
+multi_handler = ToolipsUDP.MultiHandler(main_handler)
+
+export multi_handler, start!, UDP
+export main_handler, second_step
+end
 ```
 """
 function set_handler!(c::UDPConnection, name::String)
@@ -708,7 +834,27 @@ set_handler!(c::UDPConnection, name::String)
 set_handler!(c::UDPConnection, ip4::IP4, name::String)
 ```
 ```example
+module HandlerSample
+using ToolipsUDP
 
+
+main_handler = handler() do c::UDPConnection
+    println("response 1")
+    set_handler!(c, "second")
+end
+
+second_step = handler("second") do c::UDPConnection
+    println("response 2")
+    remove_hanlder!(c)
+end
+
+multi_handler = ToolipsUDP.MultiHandler(main_handler)
+
+export multi_handler, start!, UDP
+export main_handler, second_step
+end
+
+# this server will continuously switch between response 1 and response 2.
 ```
 """
 remove_handler!(c::UDPConnection) = delete!(c[:MultiHandler].clients, get_ip4(c))
