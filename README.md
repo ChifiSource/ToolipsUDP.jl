@@ -115,16 +115,60 @@ We are able to respond, as well as send data, using the `send` and `respond` fun
 #### extensions
 UDP extensions are handled nearly identically to regular `Toolips` extensions. First, we create a new type that is a `<:` of `AbstractUDPExtension`.
 ```julia
+pages = Dict("page1" => "once upon a time", "page2" => "there was a person")
+
+mutable struct MySampleExtension <: ToolipsUDP.UDPExtension
+     client_page::Dict{IP4,  String}
+     config_path::String
+    MySampleExtension(uri::String) = new(Dict{IP4, String}(), uri)::MySampleExtension
+end
 ```
 Next, this extension may be bound to `route!` and `on_start`:
 ```julia
+import ToolipsUDP: on_start, route!
+
+function on_start(data::Dict{Symbol, Any}, ext::MySampleExtension)
+    raw_config = read(ext.config_path, String)
+    for client in split(raw_config, ";")
+        value_splits = split(client, "|")
+        ip4_splits = split(ip4_str[1], ":")
+        ip4 = string(ip4_splits[1]):parse(Int64, ip4_splits[2])
+        push!(ext.client_page, ip4 => string(value_splits[2]))
+   end
+end
+# use `false` to stop routing
+function route!(c::UDPConnection, ext::MySampleExtension)
+    if get_ip4(c) in keys(ext.client_page)
+       respond!(c, "you're loaded on page " * ext.client_page[get_ip4(c)])
+       return(false)
+    end
+end
 ```
 #### multi-threading
-Multi-threading is done by simply adding a **range** of threads to utilize. In this range, `1` represents your base thread -- anything about `1` will be served on an additional thread. Anything below `1` provided as the `minimum` will perform an extra response on the base thread. In other words, `0:3` would serve twice on the base therad, `0` and `1`, before serving `2` and `3` on workers and returning to `0` and the base thread.
+Multi-threading is done by simply adding a **range** of threads to utilize. In this range, `1` represents your base thread -- anything about `1` will be served on an additional thread. Anything below `1` provided as the `minimum` will perform an extra response on the base thread. In other words, `0:3` would serve twice on the base thread, `0` and `1`, before serving `2` and `3` on workers and returning to `0` and the base thread. Note that both a `UDPIOConnection` and a `UDPConnection` will be sent through a multi-threaded server's handlers, so this must be annotated as an `AbstractUDPConnection`.
 ```julia
+module MultiThreadedServer
+using ToolipsUDP
+count = 0
+
+main = handler() do c::AbstractUDPConnection
+    global count += 1
+end
+
+export main, UDP, start!
+end # module MultiThreadedServer
+
+using MultiThreadedServer
+start!(UDP, MultiThreadedServer, threads = -1:5)
 ```
 The `ProcessManager` is also, like `Toolips`, the return of `start!`. Considering this, we could feasibly add workers and distribute our tasks -- though `threads` and `router_threads` aren't *both* available as they are in `Toolips`. 
-While this aspect of multi-threading is relatively straightforward, not all servers will be compatible with this form of multi-threading. For starters, your handlers will need to be annotated as `AbstractUDPConnection`, rather than a regular `UDPConnection` -- as a different `Connection` type is used when not on the base therad.
+While this aspect of multi-threading is relatively straightforward, not all servers will be compatible with this form of multi-threading. For starters, your handlers will need to be annotated as `AbstractUDPConnection`, rather than a regular `UDPConnection` -- as a different `Connection` type is used when not on the base thread.
+
+Downsides to multi-threading with `ToolipsUDP`:
+- You cannot use `send` -- in the future, there might be a place to store sent data inside of a `UDPIOConnection`, for now this is not a reality and the `UDPIOConnection` is relegated exclusively to `respond!` for sending data. In other words, we can send data back to the client but not really anywhere else.
+- A multi-threaded project **MUST BE** an established project with its own environment, modules created under `Main` or in the REPL will not be able to load on additional threads.
+- Inevitably, loading your server across several threads leads to a higher memory cost. The `threads` argument allows you to balance the performance of the threads with the loss in performance that occurs from translating data into each thread.
+- Every `Handler` function argument must be annotated as an `AbstractUDPConnection`, or have no annotation at all.
 ### contributing
 You can help out with this project by...
 - using `ToolipsUDP` in your own project 🌷
