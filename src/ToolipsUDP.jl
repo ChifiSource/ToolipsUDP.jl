@@ -560,7 +560,7 @@ function new_app(st::Type{ServerTemplate{:UDP}}, name::String)
         write(o, 
         """module $name
         using ToolipsUDP
-
+  
         default_handler = handler() do c::UDPConnection
             println("served a client")
             respond!(c, "hello world!")
@@ -871,7 +871,6 @@ function route!(c::UDPConnection, mh::MultiHandler)
         return(false)
     end
 end
-
 
 export send, UDPConnection, respond!, start!, IP4, write!, handler, UDPExtension, set_handler!, UDP, AbstractUDPConnection
 export remove_handler!, get_ip4, get_ip, kill!
