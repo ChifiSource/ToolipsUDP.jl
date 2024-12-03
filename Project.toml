@@ -1,11 +1,11 @@
 name = "ToolipsUDP"
 uuid = "c24f5779-9d3b-4059-90d7-a34104ea6889"
 authors = ["emmac <emmacboudreau@gmail.com>"]
-version = "0.1.0"
+version = "0.2.0"
 
 [deps]
 Toolips = "a47e2ad8-fcf7-417c-9746-32b9bdf220bd"
 
 [compat]
 julia = "1.5"
-Toolips = "0.2"
+Toolips = "0.3.3"

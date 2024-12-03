@@ -1,0 +1,8 @@
+name = "test"
+uuid = "7afedf44-bc39-4166-a2ea-30705e49fb70"
+authors = ["emmac "]
+version = "0.1.0"
+
+[deps]
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+ToolipsUDP = "c24f5779-9d3b-4059-90d7-a34104ea6889"
