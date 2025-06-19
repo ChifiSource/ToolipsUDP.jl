@@ -22,17 +22,17 @@ The API provides the obvious `get_ip` binding, as well as `send` and `respond!` 
 peer-to-server communication.
 ##### provides
 - `UDP` (`ServerTemplate{:UDP}`)
-- `AbstractUDPHandler`
-- `UDPHandler`
+- `AbstractHandler`
+- `Handler`
 - `NamedHandler`
 - `handler`
 - `AbstractUDPConnection`
 - `UDPConnection`
 - `UDPIOConnection`
-- `AbstractUDPExtension`
+- `SocketServerExtension`
 - `UDPExtension{T <: Any}`
-- `Toolips.route!(c::UDPConnection, ext::AbstractUDPExtension)`
-- `Toolips.on_start(data::Dict{Symbol, Any}, ext::AbstractUDPExtension)`
+- `Toolips.route!(c::UDPConnection, ext::SocketServerExtension)`
+- `Toolips.on_start(data::Dict{Symbol, Any}, ext::SocketServerExtension)`
 - `Toolips.start!(st::Type{ServerTemplate{:UDP}}, mod::Module; ip::IP4 = "127.0.0.1":2000, threads::UnitRange{Int64} = 1:1, async::Bool = true)`
 - `Toolips.new_app(st::Type{ServerTemplate{:UDP}}, name::String)`
 - `Toolips.get_ip(c::UDPConnection)`
@@ -45,9 +45,11 @@ peer-to-server communication.
 - `Toolips.route!(c::UDPConnection, mh::MultiHandler)`
 """
 module ToolipsUDP
+using Toolips
 using Toolips.Sockets
 import Toolips: IP4, AbstractConnection, get_ip, write!, ip4_cli, ProcessManager, assign!, AbstractIOConnection, Crayon, kill!, get_ip4, handler
-import Toolips: route!, on_start, AbstractExtension, AbstractRoute, respond!, start!, ServerTemplate, new_app, @everywhere
+using Toolips: SocketServerExtension
+import Toolips: route!, on_start, AbstractExtension, AbstractRoute, respond!, start!, ServerTemplate, new_app, @everywhere, AbstractHandler
 using Toolips.ParametricProcesses
 using Toolips.Pkg: activate, add, generate
 import Toolips.Sockets: send, bind
@@ -80,7 +82,7 @@ UDPConnection <: AbstractUDPConnection
 - data**::Dict{Symbol, Any}**
 - server**::Sockets.UDPSocket**
 ---
-The `UDPConnection` is passed into your `UDPHandler`'s function. This is essentially the in and out stream 
+The `UDPConnection` is passed into your `Handler`'s function. This is essentially the in and out stream 
 in `ToolipsUDP`. We respond using `send` and `respond!` and we get the incoming packet by calling the 
 `c.packet` field.
 ##### constructors
@@ -89,10 +91,10 @@ in `ToolipsUDP`. We respond using `send` and `respond!` and we get the incoming 
 mutable struct UDPConnection <: Toolips.AbstractSocketConnection
     ip::IP4
     packet::String
-    handlers::Vector{AbstractUDPHandler}
+    handlers::Vector{AbstractHandler}
     data::Dict{Symbol, Any}
     server::Sockets.UDPSocket
-    function UDPConnection(data::Dict{Symbol, Any}, server::Sockets.UDPSocket, handlers::Vector{AbstractUDPHandler})
+    function UDPConnection(data::Dict{Symbol, Any}, server::Sockets.UDPSocket, handlers::Vector{AbstractHandler})
         ip, rawdata = recvfrom(server)
         packet = String(rawdata)
         port = Int64(ip.port)
@@ -111,7 +113,7 @@ UDPIOConnection <: Toolips.AbstractUDPConnection
 - data**::Dict{Symbol, Any}**
 - stream**::String**
 ---
-The `UDPIOConnection` is passed into your `UDPHandler`'s function in much the same way the `UDPConnection` is. 
+The `UDPIOConnection` is passed into your `Handler`'s function in much the same way the `UDPConnection` is. 
 This is specifically, like the `IOConnection`, created for the context of multi-threading -- as the server's 
 streams cannot be written to by any other thread than the base. 
 ##### constructors
@@ -120,12 +122,12 @@ streams cannot be written to by any other thread than the base.
 mutable struct UDPIOConnection <: AbstractUDPConnection
     ip::IP4
     packet::String
-    handlers::Vector{AbstractUDPHandler}
+    handlers::Vector{AbstractHandler}
     data::Dict{Symbol, Any}
     stream::String
 end
 
-write!(c::AbstractUDPConnection, a::Any ...) = throw("`respond!` should be used in place of `write!` for a `UDPHandler`.")
+write!(c::AbstractUDPConnection, a::Any ...) = throw("`respond!` should be used in place of `write!` for a `Handler`.")
 
 getindex(c::AbstractUDPConnection, data::Symbol) = c.data[data]
 setindex!(c::AbstractUDPConnection, a::Any, data::Symbol) = c.data[data] = a
@@ -161,7 +163,7 @@ data_ext = UDPExtension{:cr}()
 export mainhandler, data_ext
 end
 ```
-- See also: `handler`, `UDPConnection`, `on_start`, `route!`, `AbstractUDPExtension`
+- See also: `handler`, `UDPConnection`, `on_start`, `route!`, `SocketServerExtension`
 ```julia
 UDPExtension{T <: Any}()
 ```
@@ -198,6 +200,7 @@ using ToolipsUDP; start!(UDP, MyServer)
 """
 function start!(st::Type{ServerTemplate{:UDP}}, mod::Module; ip::IP4 = "127.0.0.1":2000, threads::UnitRange{Int64} = 1:1, 
     async::Bool = true)
+    mod.eval(Meta.parse("data = nothing; server = nothing"))
     data::Dict{Symbol, Any} = Dict{Symbol, Any}()
     # server
     server = UDPSocket()
@@ -227,7 +230,7 @@ function start!(st::Type{ServerTemplate{:UDP}}, mod::Module; ip::IP4 = "127.0.0.
         end
         push!(data, Symbol(T) => ext)
     end
-    allparams = (m.sig.parameters[3] for m in methods(route!, Any[AbstractUDPConnection, AbstractUDPExtension]))
+    allparams = (m.sig.parameters[3] for m in methods(route!, Any[AbstractUDPConnection, SocketServerExtension]))
     filter!(ext -> typeof(ext) in allparams, loaded)
     pm::ProcessManager = ProcessManager()
     push!(data, :procs => pm)
@@ -269,7 +272,7 @@ function start!(st::Type{ServerTemplate{:UDP}}, mod::Module; ip::IP4 = "127.0.0.
             end
         end
     else
-        iocon::UDPIOConnection = UDPIOConnection("":0, "", Vector{AbstractUDPHandler}(), data, "")
+        iocon::UDPIOConnection = UDPIOConnection("":0, "", Vector{AbstractHandler}(), data, "")
         add_workers!(pm, router_threads)
         pids::Vector{Int64} = [work.pid for work in filter(w -> typeof(w) != Worker{ParametricProcesses.Async}, pm.workers)]
         Main.eval(Meta.parse("""using ToolipsUDP: @everywhere; @everywhere begin
@@ -429,7 +432,7 @@ end
 send(c::UDPConnection, data::String, to::IP4 = "127.0.0.1":2000) -> ::Nothing
 ```
 Sends `data` from a `UDPConnection` to any other endpoint. This is useful for 
-data we want to send inside of a `UDPHandler`. To respond to the current client, we could provide 
+data we want to send inside of a `Handler`. To respond to the current client, we could provide 
 the `c.ip` as `to`, but we could also use `respond!` to simplify the process.
 Note that this can only happen from the base thread, as well. In the future, we might have 
 a way to translate this data but this is not currently supported. Please try to understand that 
