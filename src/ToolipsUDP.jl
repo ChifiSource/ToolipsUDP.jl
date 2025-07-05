@@ -48,14 +48,12 @@ module ToolipsUDP
 using Toolips
 using Toolips.Sockets
 import Toolips: IP4, AbstractConnection, get_ip, write!, ip4_cli, ProcessManager, assign!, AbstractIOConnection, Crayon, kill!, get_ip4, handler
-using Toolips: SocketServerExtension
+using Toolips: SocketServerExtension, MultiHandler, NamedHandler, Handler
 import Toolips: route!, on_start, AbstractExtension, AbstractRoute, respond!, start!, ServerTemplate, new_app, @everywhere, AbstractHandler
 using Toolips.ParametricProcesses
 using Toolips.Pkg: activate, add, generate
 import Toolips.Sockets: send, bind
 import Base: show, read, getindex, setindex!, push!
-
-const UDP = ServerTemplate{:UDP}
 
 """
 ### abstract type AbstractUDPConnection <: Toolips.AbstractConnection
@@ -198,7 +196,7 @@ using ToolipsUDP; start!(UDP, MyServer)
 **NOTE** that with multi-threading, you will want to annotate your handler's `Connection` as an 
 `AbstractUDPConnection`, in order to facilitate the `IOConnection` that can actually be sent across threads.
 """
-function start!(st::Type{ServerTemplate{:UDP}}, mod::Module; ip::IP4 = "127.0.0.1":2000, threads::UnitRange{Int64} = 1:1, 
+function start!(st::ServerTemplate{:UDP}, mod::Module, ip::IP4 = "127.0.0.1":2000; threads::UnitRange{Int64} = 1:1, 
     async::Bool = true)
     mod.eval(Meta.parse("data = nothing; server = nothing"))
     data::Dict{Symbol, Any} = Dict{Symbol, Any}()
@@ -368,13 +366,18 @@ function new_app(st::Type{ServerTemplate{:UDP}}, name::String)
 
         default_handler = handler() do c::UDPConnection
             println("served a client")
+            @info "client sent: " * c.packet
             respond!(c, "hello world!")
         end
 
-        export default_handler, start!, UDP
-        # using $name; start!(UDP, name, ip = "127.0.0.1":2000)
+        export default_handler, start!
+        # using $name; start!(:UDP, name, "127.0.0.1":2000)
         end
         """)
+    end
+    touch("$name/dev.jl")
+    open("$name/dev.jl", "w") do o::IOStream
+        write(o, """DIR = @__DIR__\nusing Pkg; Pkg.activate(DIR)\nusing $name; start!(:UDP, $name)""")
     end
     return
 end
