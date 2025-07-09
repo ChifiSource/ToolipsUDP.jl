@@ -5,33 +5,33 @@ using test: TestClient
 using test: MultiThreadedServer
 
 @info "starting test servers (it will take a second to start additional threads)"
-procs = start!(UDP, test, ip = "127.0.0.1":3005)
-procs2 = start!(UDP, test.TestClient, ip = "127.0.0.1":3004)
-mtserver_procs = start!(UDP, MultiThreadedServer, ip = "127.0.0.1":5004, threads = 1:4)
+procs = start!(:UDP, test, "127.0.0.1":3005)
+procs2 = start!(:UDP, test.TestClient, "127.0.0.1":3004)
+mtserver_procs = start!(:UDP, MultiThreadedServer, "127.0.0.1":5004, threads = 1:4)
 
 @testset "ToolipsUDP tests" verbose = true begin
     @testset "handlers" begin
         basic_handler = handler(c -> respond!(c, "hi"))
-        @test typeof(basic_handler) == ToolipsUDP.UDPHandler
+        @test typeof(basic_handler) == ToolipsUDP.Handler
         named_handler = handler("sample") do c
         end
         @test typeof(named_handler) == ToolipsUDP.NamedHandler
         @test named_handler.name == "sample"
     end
     @testset "start!" begin
-        
         @test typeof(procs) == ToolipsUDP.ParametricProcesses.ProcessManager
         @test length(procs.workers) == 1
         
         @test typeof(procs2) == ToolipsUDP.ParametricProcesses.ProcessManager
         @test length(procs2.workers) == 1
-        send("hi", "127.0.0.1":3004)
+        sock = send("hi", "127.0.0.1":3004, keep_open = true)
         sleep(1)
         @test test.client_served == true
         if test.client_served == false
             println("CLIENT NOT SERVED?")
         end
         @test TestClient.got_first
+        close(sock)
     end
     @testset "server send and receive" begin
         send(TestClient, "sendback", "127.0.0.1":3005)
@@ -58,8 +58,9 @@ mtserver_procs = start!(UDP, MultiThreadedServer, ip = "127.0.0.1":5004, threads
     end
     @testset "multi-threading" begin
         @test length(mtserver_procs.workers) == 5
-        send("hi", "127.0.0.1":5004)
+        sock = send("hi", "127.0.0.1":5004, keep_open = true)
         @test MultiThreadedServer.count == 1
+        close(sock)
     end
     @info "finishing!"
     kill!(MultiThreadedServer)

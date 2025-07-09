@@ -5,4 +5,5 @@ version = "0.1.0"
 
 [deps]
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+Toolips = "a47e2ad8-fcf7-417c-9746-32b9bdf220bd"
 ToolipsUDP = "c24f5779-9d3b-4059-90d7-a34104ea6889"

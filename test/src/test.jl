@@ -10,7 +10,7 @@ main_handler = handler() do c::UDPConnection
     elseif packet == "sendback"
         respond!(c, "sent")
     elseif packet == "changehandler"
-        set_handler!(c, "other")
+        ToolipsUDP.set_handler!(c, "other")
     end
 end
 

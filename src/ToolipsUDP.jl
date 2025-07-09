@@ -52,7 +52,7 @@ using Toolips: SocketServerExtension, MultiHandler, NamedHandler, Handler
 import Toolips: route!, on_start, AbstractExtension, AbstractRoute, respond!, start!, ServerTemplate, new_app, @everywhere, AbstractHandler
 using Toolips.ParametricProcesses
 using Toolips.Pkg: activate, add, generate
-import Toolips.Sockets: send, bind
+import Toolips.Sockets: send, bind, set_handler!
 import Base: show, read, getindex, setindex!, push!
 
 """
@@ -236,6 +236,7 @@ function start!(st::ServerTemplate{:UDP}, mod::Module, ip::IP4 = "127.0.0.1":200
     t = nothing
     if router_threads < 2 && async
         t = @async while server.status > 2
+            try
             GARBAGE += 1
             if GARBAGE > 150
                 GC.gc()
@@ -254,6 +255,9 @@ function start!(st::ServerTemplate{:UDP}, mod::Module, ip::IP4 = "127.0.0.1":200
             catch e
                 throw(e)
             end
+        catch e
+            @warn e
+        end
         end
     elseif ~(async)
         t = while server.status > 2
@@ -523,5 +527,5 @@ respond!(c::UDPConnection, data::String) = send(c, data, c.ip)
 respond!(c::UDPIOConnection, data::String) = c.stream = c.stream * data
 
 export send, UDPConnection, respond!, start!, IP4, write!, handler, UDPExtension, set_handler!, UDP, AbstractUDPConnection
-export remove_handler!, get_ip4, get_ip, kill!
+export remove_handler!, get_ip4, get_ip, kill!, recvfrom
 end # module ToolipsUDP
