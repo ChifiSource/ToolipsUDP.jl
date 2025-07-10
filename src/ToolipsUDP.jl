@@ -49,10 +49,10 @@ using Toolips
 using Toolips.Sockets
 import Toolips: IP4, AbstractConnection, get_ip, write!, ip4_cli, ProcessManager, assign!, AbstractIOConnection, Crayon, kill!, get_ip4, handler
 using Toolips: SocketServerExtension, MultiHandler, NamedHandler, Handler
-import Toolips: route!, on_start, AbstractExtension, AbstractRoute, respond!, start!, ServerTemplate, new_app, @everywhere, AbstractHandler
+import Toolips: route!, on_start, AbstractExtension, AbstractRoute, respond!, start!, ServerTemplate, new_app, @everywhere, AbstractHandler, set_handler!
 using Toolips.ParametricProcesses
 using Toolips.Pkg: activate, add, generate
-import Toolips.Sockets: send, bind, set_handler!
+import Toolips.Sockets: send, bind
 import Base: show, read, getindex, setindex!, push!
 
 """
@@ -253,7 +253,14 @@ function start!(st::ServerTemplate{:UDP}, mod::Module, ip::IP4 = "127.0.0.1":200
             try
                 handlers[1].f(con)
             catch e
-                throw(e)
+                io = IOBuffer()
+                showerror(io, e)
+                msg = String(take!(io))
+                @warn "Caught Exception" exception_type=typeof(e) message=msg
+            	@warn "Stacktrace:"
+	            for (i, frame) in enumerate(stacktrace(catch_backtrace()))
+		            @warn "$i: $frame"
+	            end
             end
         catch e
             @warn e
@@ -270,7 +277,14 @@ function start!(st::ServerTemplate{:UDP}, mod::Module, ip::IP4 = "127.0.0.1":200
             try
                 handlers[1].f(con)
             catch e
-                throw(e)
+                io = IOBuffer()
+                showerror(io, e)
+                msg = String(take!(io))
+                @warn "Caught Exception" exception_type=typeof(e) message=msg
+            	@warn "Stacktrace:"
+	            for (i, frame) in enumerate(stacktrace(catch_backtrace()))
+		            @warn "$i: $frame"
+	            end
             end
         end
     else
@@ -298,7 +312,14 @@ function start!(st::ServerTemplate{:UDP}, mod::Module, ip::IP4 = "127.0.0.1":200
             try
                 iocon.handlers[1].f(iocon)
             catch e
-                throw(e)
+                io = IOBuffer()
+                showerror(io, e)
+                msg = String(take!(io))
+                @warn "Caught Exception" exception_type=typeof(e) message=msg
+            	@warn "Stacktrace:"
+	            for (i, frame) in enumerate(stacktrace(catch_backtrace()))
+		            @warn "$i: $frame"
+	            end
             end
         end
         @async while server.status > 2
